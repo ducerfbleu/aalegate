@@ -1,0 +1,55 @@
+# aalegate-pi-cuda --- pi coding agent on a CUDA runtime (Ubuntu 24.04), pinned by the SAME
+# npm lockfile as aalegate-pi. Stage 1 (the pinned node image) runs `npm ci` from harnesses/pi's
+# lockfile; stage 2 (CUDA) copies in the node binary + pi's node_modules. No bun, no pi-build.
+#
+# UID-neutral: NO baked user (the old 22.04 image hard-coded uid 1000 + /home/dev0 --- a uid/name
+# leak). Identity is mapped at RUN time: docker/podman `--user $(id -u):$(id -g)`, podman-rootless
+# maps image-root->you, apptainer runs as the caller. HOME + /workspace are world-writable.
+#
+# DL stack (torch/JAX) is NOT baked --- bring it via a mounted conda (--mount /opt/miniconda3:...);
+# this image supplies CUDA 12.8.
+#
+# HARDENING (see harnesses/pi/Dockerfile): build ROOTLESS, scope build egress to the registries,
+# --ignore-scripts. Bases are ARG-overridable so you can digest-pin them.
+#   Build (context = aalegate root):
+#     podman build -t aalegate-pi-cuda -f harnesses/pi-cuda/Dockerfile.pi-cuda-ubuntu24.04 .
+
+# --- Stage 1: pi's locked node_modules, installed on the pinned node image (no CUDA here) ---
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+ARG CUDA_IMAGE=nvidia/cuda:12.8.1-devel-ubuntu24.04
+FROM ${NODE_IMAGE} AS deps
+WORKDIR /opt/pi
+COPY harnesses/pi/package.json harnesses/pi/package-lock.json ./
+RUN npm ci --ignore-scripts && npm cache clean --force
+
+# --- Stage 2: CUDA runtime (Ubuntu 24.04) with node + pi wired to the recorder ---
+FROM ${CUDA_IMAGE}
+ENV DEBIAN_FRONTEND=noninteractive
+# ca-certificates (pi TLS) + git/jq/ripgrep/curl/bash (pi tools) + libstdc++6/libgcc-s1 (node's libs)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates git jq ripgrep curl bash libstdc++6 libgcc-s1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# CUDA toolkit libs + the runtime-mounted driver dir, resolvable by SONAME. The math libs
+# (libcudart/libcublas/libcublasLt.so.12) live in targets/x86_64-linux/lib, NOT lib64 --- list
+# both so ldconfig caches them and a CUDA binary links AND runs without a manual LD_LIBRARY_PATH.
+# (libcuda.so.1 lands in /opt/nvidia-driver, or /usr/lib/wsl/lib under WSL2, via --gpu nvidia.)
+RUN printf '/usr/local/cuda/lib64\n/usr/local/cuda/targets/x86_64-linux/lib\n/opt/nvidia-driver\n' > /etc/ld.so.conf.d/aalegate-cuda.conf && ldconfig
+
+# node runtime + pi's locked node_modules from stage 1. The node binary is glibc-forward-compatible
+# (built on bookworm 2.36, runs on noble 2.39). pi is JS run by node --- no bun, no compile step.
+COPY --from=deps /usr/local/bin/node /usr/local/bin/node
+COPY --from=deps /opt/pi /opt/pi
+ENV PATH="/opt/pi/node_modules/.bin:$PATH"
+RUN node --version      # fail-fast: confirm the copied node binary runs on this CUDA/Ubuntu base
+
+# UID-neutral runtime home + workdir (writable by any uid; no USER baked in).
+ENV HOME=/home/user
+RUN mkdir -m 0777 /home/user /workspace
+WORKDIR /workspace
+
+# aalegate self-wiring: entrypoint aims pi at the recorder; harness.json declares wiring.
+COPY harnesses/entrypoint.sh /usr/local/bin/aalegate-entrypoint
+COPY harnesses/pi-cuda/harness.json /etc/aalegate/harness.json
+RUN chmod 0755 /usr/local/bin/aalegate-entrypoint && chmod 0644 /etc/aalegate/harness.json
+ENTRYPOINT ["/usr/local/bin/aalegate-entrypoint"]

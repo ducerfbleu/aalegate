@@ -1,0 +1,5 @@
+{
+  "api": "anthropic",
+  "command": ["claude", "--dangerously-skip-permissions"],
+  "model_config": "none"
+}

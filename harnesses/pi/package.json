@@ -1,0 +1,8 @@
+{
+  "name": "aalegate-pi-pin",
+  "private": true,
+  "description": "Pins @earendil-works/pi-coding-agent (+ its full transitive tree via package-lock.json) for a reproducible, integrity-verified aalegate-pi image. Bump the version here, then: npm install --package-lock-only --ignore-scripts",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.4"
+  }
+}
