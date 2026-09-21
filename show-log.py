@@ -125,7 +125,7 @@ def pick_project(root, initial=""):
 
 
 def resolve(argv):
-    from recorder import DEFAULT_AUDIT_ROOT       # single source (honors $AALGT_AUDIT_ROOT)
+    from recorder import DEFAULT_AUDIT_ROOT       # single source (honors $AALE_AUDIT_ROOT)
     root = DEFAULT_AUDIT_ROOT
     run = project = None
     pick = False

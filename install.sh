@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # install.sh --- per-user installer for aalegate (the aalegate recorder toolkit).
 #
-# Installs the intact source tree to $AALGT_HOME, builds the Go host binaries
+# Installs the intact source tree to $AALE_HOME, builds the Go host binaries
 # (gateway/egress/tui) into its bin/, drops PATH shims into $PREFIX/bin, and
 # writes an env file you source from your shell rc. No sudo, no site-packages:
 # the Python resolves its siblings + bin/ + harnesses/ relative to its own real
@@ -9,21 +9,21 @@
 #
 #   ./install.sh                 # -> ~/.local/share/aalegate + ~/.local/bin shims
 #   ./install.sh --prefix ~/.foo # bin shims under ~/.foo/bin
-#   ./install.sh --home DIR      # install the tree to DIR ($AALGT_HOME)
+#   ./install.sh --home DIR      # install the tree to DIR ($AALE_HOME)
 #   ./install.sh --no-go         # skip building; trust the committed bin/*
 #   ./install.sh --uninstall     # remove shims + tree + env file + rc line (keeps images/keys/audit)
 #   ./install.sh --purge         # --uninstall AND remove built images, ~/.aalegate keys, audit data
 #
 # Platform images (aalegate-gateway/egress/egress-proxy) are NOT built here --- run
-# ./build-aalegate.sh separately (docker by default; AALGT_ENGINE=podman ./build-aalegate.sh
+# ./build-aalegate.sh separately (docker by default; AALE_ENGINE=podman ./build-aalegate.sh
 # for a rootless podman build --- podman's image store is separate from docker's).
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
-# AALGT_PREFIX (not the generic $PREFIX) --- a bare PREFIX is exported by Lmod modules, autotools,
+# AALE_PREFIX (not the generic $PREFIX) --- a bare PREFIX is exported by Lmod modules, autotools,
 # etc., and would silently aim the shims at, e.g., a module's root-owned bin. --prefix overrides.
-PREFIX="${AALGT_PREFIX:-$HOME/.local}"
-AALGT_HOME="${AALGT_HOME:-$HOME/.local/share/aalegate}"
+PREFIX="${AALE_PREFIX:-$HOME/.local}"
+AALE_HOME="${AALE_HOME:-$HOME/.local/share/aalegate}"
 ENV_FILE="$HOME/.config/aalegate/env"
 BUILD_GO=1
 DO_UNINSTALL=0
@@ -36,7 +36,7 @@ die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --prefix)    PREFIX="$2"; shift 2 ;;
-        --home)      AALGT_HOME="$2"; shift 2 ;;
+        --home)      AALE_HOME="$2"; shift 2 ;;
         --no-go)     BUILD_GO=0; shift ;;
         --uninstall) DO_UNINSTALL=1; shift ;;
         --purge)     DO_UNINSTALL=1; DO_PURGE=1; shift ;;
@@ -61,7 +61,7 @@ if [ "$DO_UNINSTALL" = 1 ]; then
         [ -L "$BINDIR/$s" ] && { rm -f "$BINDIR/$s"; say "removed shim $BINDIR/$s"; }
     done
     # tree + env file (+ its now-empty config dir)
-    [ -d "$AALGT_HOME" ] && { rm -rf "$AALGT_HOME"; say "removed tree $AALGT_HOME"; }
+    [ -d "$AALE_HOME" ] && { rm -rf "$AALE_HOME"; say "removed tree $AALE_HOME"; }
     [ -f "$ENV_FILE" ]    && { rm -f "$ENV_FILE"; say "removed env $ENV_FILE"; }
     rmdir "$(dirname "$ENV_FILE")" 2>/dev/null && say "removed empty $(dirname "$ENV_FILE")" || true
     # shell rc source line --- the line embeds $ENV_FILE, so it is unambiguously ours
@@ -74,7 +74,7 @@ if [ "$DO_UNINSTALL" = 1 ]; then
         fi
     done
 
-    AUDIT_ROOT="${AALGT_AUDIT_ROOT:-$HOME/.local/state/aalegate}"
+    AUDIT_ROOT="${AALE_AUDIT_ROOT:-$HOME/.local/state/aalegate}"
     if [ "$DO_PURGE" = 1 ]; then
         # container images --- docker and podman stores are SEPARATE; clean whichever exists
         for eng in docker podman; do
@@ -118,26 +118,26 @@ done
 [ "$have_runtime" = 0 ] && say "warning: no docker/podman/apptainer on PATH --- install one to actually run agents."
 
 # ---- copy the tree -----------------------------------------------------------
-step "installing tree -> $AALGT_HOME"
-[ "$SRC" = "$AALGT_HOME" ] && die "source and destination are the same dir; nothing to copy"
-mkdir -p "$AALGT_HOME"
+step "installing tree -> $AALE_HOME"
+[ "$SRC" = "$AALE_HOME" ] && die "source and destination are the same dir; nothing to copy"
+mkdir -p "$AALE_HOME"
 if command -v rsync >/dev/null 2>&1; then
     rsync -a --delete \
         --exclude '__pycache__/' --exclude '*.pyc' --exclude '.git/' --exclude 'work/' \
-        "$SRC"/ "$AALGT_HOME"/
+        "$SRC"/ "$AALE_HOME"/
 else
-    cp -a "$SRC"/. "$AALGT_HOME"/
-    find "$AALGT_HOME" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+    cp -a "$SRC"/. "$AALE_HOME"/
+    find "$AALE_HOME" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 fi
-say "copied $(cd "$AALGT_HOME" && ls | wc -l) top-level entries"
+say "copied $(cd "$AALE_HOME" && ls | wc -l) top-level entries"
 
 # ---- build Go host binaries --------------------------------------------------
 if [ "$BUILD_GO" = 1 ]; then
-    step "building Go host binaries -> $AALGT_HOME/bin"
-    mkdir -p "$AALGT_HOME/bin"
+    step "building Go host binaries -> $AALE_HOME/bin"
+    mkdir -p "$AALE_HOME/bin"
     build_one() {  # <module-dir> <output-name>
-        ( cd "$AALGT_HOME/$1" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
-            -o "$AALGT_HOME/bin/$2" . ) && say "built $2"
+        ( cd "$AALE_HOME/$1" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+            -o "$AALE_HOME/bin/$2" . ) && say "built $2"
     }
     build_one gateway aalegate-gateway
     build_one egress  aalegate-egress
@@ -145,14 +145,14 @@ if [ "$BUILD_GO" = 1 ]; then
 else
     say "skipping Go build (--no-go); using committed bin/*"
 fi
-chmod +x "$AALGT_HOME/aalegate-run" "$AALGT_HOME/show-log.py" "$AALGT_HOME/netns-run" 2>/dev/null || true
+chmod +x "$AALE_HOME/aalegate-run" "$AALE_HOME/show-log.py" "$AALE_HOME/netns-run" 2>/dev/null || true
 
 # ---- PATH shims --------------------------------------------------------------
 step "linking shims -> $BINDIR"
 mkdir -p "$BINDIR"
-ln -sf "$AALGT_HOME/aalegate-run"    "$BINDIR/aalegate"
-ln -sf "$AALGT_HOME/show-log.py"     "$BINDIR/aalegate-log"
-ln -sf "$AALGT_HOME/bin/aalegate-tui" "$BINDIR/aalegate-tui"
+ln -sf "$AALE_HOME/aalegate-run"    "$BINDIR/aalegate"
+ln -sf "$AALE_HOME/show-log.py"     "$BINDIR/aalegate-log"
+ln -sf "$AALE_HOME/bin/aalegate-tui" "$BINDIR/aalegate-tui"
 for s in $SHIMS; do say "$s -> $(readlink "$BINDIR/$s")"; done
 
 # ---- env file ----------------------------------------------------------------
@@ -160,9 +160,9 @@ step "writing env file -> $ENV_FILE"
 mkdir -p "$(dirname "$ENV_FILE")"
 cat > "$ENV_FILE" <<EOF
 # aalegate environment --- source this from your shell rc.
-export AALGT_HOME="$AALGT_HOME"
+export AALE_HOME="$AALE_HOME"
 # audit/run store; override anytime. Default matches recorder.py's built-in.
-export AALGT_AUDIT_ROOT="\${AALGT_AUDIT_ROOT:-\$HOME/.local/state/aalegate}"
+export AALE_AUDIT_ROOT="\${AALE_AUDIT_ROOT:-\$HOME/.local/state/aalegate}"
 # put the shims on PATH (idempotent --- safe to source repeatedly).
 case ":\$PATH:" in *":$BINDIR:"*) ;; *) export PATH="$BINDIR:\$PATH" ;; esac
 EOF
@@ -185,7 +185,7 @@ else
 fi
 
 step "done"
-say "installed to:  $AALGT_HOME"
+say "installed to:  $AALE_HOME"
 say "commands:      aalegate  aalegate-log  aalegate-tui"
 say "activate now:  . \"$ENV_FILE\"   (or open a new shell)"
-say "runtime images: ./build-aalegate.sh in the source tree (AALGT_ENGINE=podman for podman)"
+say "runtime images: ./build-aalegate.sh in the source tree (AALE_ENGINE=podman for podman)"

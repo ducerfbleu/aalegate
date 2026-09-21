@@ -6,7 +6,7 @@
 # (harnesses/claude-code/harness.json) resolve. Needs network to fetch the installer.
 #
 # Usage: ./build-claude.sh [--engine docker|podman] [--tag NAME] [-- <extra build args>]
-#   Engine defaults to $AALGT_ENGINE, else docker; build with the SAME engine you run with
+#   Engine defaults to $AALE_ENGINE, else docker; build with the SAME engine you run with
 #   (podman's rootless image store is separate from docker's daemon store).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -22,7 +22,7 @@ while [ $# -gt 0 ]; do
     *)        echo "build-claude.sh: unknown arg '$1'" >&2; exit 2 ;;
   esac
 done
-: "${ENGINE:=${AALGT_ENGINE:-docker}}"
+: "${ENGINE:=${AALE_ENGINE:-docker}}"
 command -v "$ENGINE" >/dev/null 2>&1 || { echo "build-claude.sh: engine '$ENGINE' not found on PATH" >&2; exit 1; }
 
 echo "== $TAG (Claude Code; native standalone binary, no node) [$ENGINE] =="

@@ -17,7 +17,7 @@
 #             --- if this checkout's platform dir is `aalegate/`, fix that prefix or symlink first.
 #
 # Usage: ./build-pi.sh [--cuda | --from-base] [--engine docker|podman] [--pi-src DIR] [--tag NAME]
-#   Engine defaults to $AALGT_ENGINE, else docker; --engine overrides. Build with the SAME
+#   Engine defaults to $AALE_ENGINE, else docker; --engine overrides. Build with the SAME
 #   engine you run with --- podman's rootless image store is separate from docker's daemon store.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"      # aalegate root
@@ -40,19 +40,19 @@ done
 
 case "$MODE" in
   from-source)
-    : "${ENGINE:=${AALGT_ENGINE:-docker}}"   # npm-install Dockerfile: no source mount; docker or podman
+    : "${ENGINE:=${AALE_ENGINE:-docker}}"   # npm-install Dockerfile: no source mount; docker or podman
     TAG="${TAG:-aalegate-pi}"
     echo "== $TAG (npm: @earendil-works/pi-coding-agent) =="
     exec "$ENGINE" build -t "$TAG" -f "$HERE/harnesses/pi/Dockerfile" "$HERE"
     ;;
   from-base)
-    : "${ENGINE:=${AALGT_ENGINE:-docker}}"
+    : "${ENGINE:=${AALE_ENGINE:-docker}}"
     TAG="${TAG:-aalegate-pi}"
     echo "== $TAG (from prebuilt harness-pi base) =="
     exec "$ENGINE" build -t "$TAG" -f "$HERE/harnesses/pi/Dockerfile.from-base" "$HERE/harnesses"
     ;;
   cuda)
-    : "${ENGINE:=${AALGT_ENGINE:-docker}}"
+    : "${ENGINE:=${AALE_ENGINE:-docker}}"
     TAG="${TAG:-aalegate-pi-cuda}"
     echo "== $TAG (npm; CUDA 12.8 / Ubuntu 24.04; context=$HERE) =="
     exec "$ENGINE" build -t "$TAG" -f "$HERE/harnesses/pi-cuda/Dockerfile.pi-cuda-ubuntu24.04" "$HERE"

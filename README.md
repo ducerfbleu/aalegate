@@ -1,13 +1,13 @@
-# aalegate
+# AALeGate: Agentic AI Lean Gateway
 
-Scientifically-verifiable Agent Sandbox
+## What it is
 
-## Overview
+Aalegate is an unprivileged, capture-first execution AI gateway designed natively for batch compute, scientific reproducibility, and airgapped benchmarking. It was written individual users in mind, for worry-free agentic AI delegation on trusted system.  
 
-Capture-first **L7 recorder** for AI coding agents. Operating at the application layer
-(HTTP---full request/response bodies, not packets), it records every LLM exchange
-(hash-chained), egress attempt, and filesystem change---three audit planes---while the agent
-runs in a structural airgap. The agent reaches only the recorder; the recorder reaches the LLM.
+It has capture-first **L7 recorder** for AI coding agents. While operating at the application layer
+(HTTP—full request/response bodies, not packets), it **records every LLM exchange
+(hash-chained), egress attempt, and filesystem change**—three audit planes. The agent
+runs in a structural airgap, and it reaches only the recorder; the recorder reaches the LLM.
 
 ## Architecture
 
@@ -46,6 +46,22 @@ runs in a structural airgap. The agent reaches only the recorder; the recorder r
 1. **Plane 1---LLM**: every prompt, completion, tool call, token usage, timing (SHA-256 hash-chained)
 2. **Plane 2---Internet**: egress allow/deny per domain (optional, via `--egress`)
 3. **Plane 3---Filesystem**: content-addressed before/after manifest of work directories
+
+## Why Aalegate
+
+**Agentic AI** is powerful tool, however, realizing its full potential requires complete delegation—to let agents write code, install packages, and execute commands autonomously—that could put a bare PC system to a real risk that most individuals are running. 
+
+The risks could be **catastrophic** that agentic harness alone cannot prevent: Agents are prone to **hallucinations** that could often lead to fatal deletion of the system. Complete access to internet could risk **prompt injection** or **supply chain attack** that result in exploitation of the system.   
+
+**Containerization** is a solution for isolating agentic workflow. However, such isolation alone is not sufficient. A fully air-gapped container may not reach critical services, such as provider authentication. A container with internet access is a real security risk, unless the user manages the traffic system-wide. Making things worse, logs inside the container are invisible to the users and tamper-prone. In short, there is not much of a middle ground for autonomous agentic AI and secure deployment.
+
+**Aalegate**, or “**Agentic AI Lean Gateway**”, propose to be such a middle ground. 
+
+Aalegate is a **lean gateway equipped with only essential functions** that individual users need to safety run AI agents on their own machines. It provides *airgap-by-default* with *controlled egress* for connecting essential domains (e.g., for LLM provider authentication). It sits in between agentic harness and LLM provider, and *records the logs of all the communication* between the two party—system messages, prompts, responses, and tool calling, etc. The log management is *centralized* where provenance from multiple harness lands in one auditable place, encrypted at rest, serving as an *independent history for user-side audit*, which agents cannot tamper with. 
+
+Aalegate is a *per-user tool* that treats end-users as **first-class citizens**—HPC users; home lab operators; and individuals with PC who seek to delegate to autonomous agents without risking their system. 
+
+Aalegate mainly written in **standard-library Go** (TUI with three Go-team maintained library) and **standard-library Python**. It has minimal third-party dependency philosophy by design, for smallest possible supply chain attack risk. We believe that this matters for individual users who don’t have a security team auditing their dependency trees. It has three Go lightweight binaries and a Python launcher. It consists of a recorder that hash-chains every LLM exchange, an egress proxy that allowlists only the necessary domains, and a TUI that allows the users to navigate the logs. Four container runtime builds—Docker, Podman, Apptainer, Kata—are provided with one launcher. 
 
 ## Runtimes
 
@@ -215,12 +231,12 @@ ml apptainer
    sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
    ```
    No root / HPC: write it under `$HOME` and point both aalegate and podman at it ---
-   `export AALGT_CDI_DIR=$HOME/cdi` and add `cdi_spec_dirs = ["/home/<you>/cdi"]` under `[engine]`
+   `export AALE_CDI_DIR=$HOME/cdi` and add `cdi_spec_dirs = ["/home/<you>/cdi"]` under `[engine]`
    in `~/.config/containers/containers.conf`.
 2. **WSL2.** Else, if `/dev/dxg` exists: `--device /dev/dxg` + `-v /usr/lib/wsl` (toolkit-free).
 3. **SONAME fallback.** Else, explicit `/dev/nvidia*` + host driver libs mounted by SONAME. Brittle
    (hardwired `/usr/lib/x86_64-linux-gnu`, single version) --- prefer CDI. Force this tier with
-   `AALGT_CDI=0`.
+   `AALE_CDI=0`.
 
 ### 5. Kata (hypervisor isolation)
 
@@ -287,12 +303,14 @@ One build script per harness (each pairs the Dockerfile with the context its COP
 
 ## Reading the logs
 
+The logs live in `~/.local/state/aalegate/` by default. Implementation of DB for server-side development is TBD.
+
 ```bash
 aalegate-tui       # interactive reader: pick a run, ↑/↓ through turns, enter to open a turn's
                    #   blocks (prompt/reasoning/completion/tool-calls/request-body), c=copy block
-                   #   (OSC 52 clipboard, works over SSH/tmux), s=save block to $AALGT_AUDIT_ROOT/clips/,
+                   #   (OSC 52 clipboard, works over SSH/tmux), s=save block to $AALE_AUDIT_ROOT/clips/,
                    #   tab=stats, md/JSON highlighting, -theme <nocturnal|dracula|gruvbox|nord|solarized|ansi>.
-                   #   Go, stdlib + golang.org/x/term + x/text.  AALGT_TUI=rich → bubbletea add-on.
+                   #   Go, stdlib + golang.org/x/term + x/text.  AALE_TUI=rich → bubbletea add-on.
 aalegate-log       # non-interactive dump (show-log.py): records + token/throughput totals
 ```
 
@@ -382,3 +400,28 @@ provides the audit trail. See `which-containers-to-use.md` for the architecture.
 | OpenAI-compatible | [x] | llama.cpp, vLLM, SGLang, TGI---what the recorder proxies today |
 | Anthropic | [x] | Messages API (`/v1/messages`): text/thinking/tool_use, streaming, `input/output_tokens`, dedup |
 | OpenAI native | [ ] | same schema as compatible, but auth + org headers differ |
+
+### Others
+
+- [] Log encryption / decryption
+- [] MCP server addon
+- [] Streaming capture: rich TUI addon
+- [] Database addon
+
+## Environment variables
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `AALE_HOME` | Install location of the aalegate tree | `~/.local/share/aalegate` |
+| `AALE_AUDIT_ROOT` | Where run provenance logs are stored | `~/.local/state/aalegate` |
+| `AALE_ENGINE` | Container engine for build scripts | `docker` |
+| `AALE_PREFIX` | Prefix for bin shims (`$PREFIX/bin`) | `~/.local` |
+| `AALE_SHELL` | Set by `--shell` --- drop to interactive bash instead of running the agent | --- |
+| `AALE_MANIFEST` | Override path to harness.json inside the container | `/etc/aalegate/harness.json` |
+| `AALE_ANTHROPIC_LOCAL` | Set by `--local` --- entrypoint maps Claude's model tiers to a local LLM | --- |
+| `AALE_CDI` | Set to `0` to force SONAME GPU fallback instead of CDI | --- |
+| `AALE_CDI_DIR` | Extra CDI spec directory (for rootless/HPC where CDI is under `$HOME`) | --- |
+| `AALE_TUI` | Set to `rich` to exec the bubbletea TUI add-on | --- |
+| `AALE_TUI_THEME` | TUI color theme: `nocturnal`, `dracula`, `gruvbox`, `nord`, `solarized`, `ansi` | `nocturnal` |
+
+Internal wire vars (`GATEWAY_*`, `EGRESS_*`) and externally-dictated agent vars (`ANTHROPIC_*`, `OPENAI_*`, `CLAUDE_CODE_*`, `LLAMA_*`) are not part of the `AALE_` namespace.

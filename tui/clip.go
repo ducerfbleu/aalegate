@@ -9,14 +9,14 @@ import (
 )
 
 // saveClip writes a block's raw text to a datetime-stamped file under the audit root's
-// clips/ dir ($AALGT_AUDIT_ROOT/clips, default ~/.local/state/aalegate/clips) and returns
+// clips/ dir ($AALE_AUDIT_ROOT/clips, default ~/.local/state/aalegate/clips) and returns
 // the path. It's a scratch space for pulling a prompt / completion / tool-call out of a run
 // without touching the recorded plane files. Distinct from `c` (clipboard): `s` always
 // persists to disk.
 func saveClip(r Record, b block) (string, error) {
 	root := auditRootDir()
 	if root == "" {
-		return "", fmt.Errorf("no audit root ($AALGT_AUDIT_ROOT unset and no home dir)")
+		return "", fmt.Errorf("no audit root ($AALE_AUDIT_ROOT unset and no home dir)")
 	}
 	dir := filepath.Join(root, "clips")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

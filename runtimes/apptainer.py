@@ -85,7 +85,7 @@ def run(args):
             aenv[v] = noproxy
 
     if args.shell:
-        aenv["AALGT_SHELL"] = "1"
+        aenv["AALE_SHELL"] = "1"
     app = ["apptainer", "run", "--contain", "--cleanenv",
            "--workdir", str(run_scratch), "--home", f"{run_home}:{HOME}"]
     if args.gpu == "nvidia":

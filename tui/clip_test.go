@@ -32,7 +32,7 @@ func TestClipFileName(t *testing.T) {
 
 func TestSaveClipWrites(t *testing.T) {
 	root := "clip-test-tmp"
-	t.Setenv("AALGT_AUDIT_ROOT", root)
+	t.Setenv("AALE_AUDIT_ROOT", root)
 	defer os.RemoveAll(root)
 
 	path, err := saveClip(Record{Seq: 7}, block{title: "Completion", raw: "hello clip"})

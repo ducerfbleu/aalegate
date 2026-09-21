@@ -44,8 +44,8 @@ AGENTS = {
 }
 
 DEFAULT_PORT = 8080
-# override with $AALGT_AUDIT_ROOT; the --audit-root flag still wins over both.
-DEFAULT_AUDIT_ROOT = Path(os.environ.get("AALGT_AUDIT_ROOT") or
+# override with $AALE_AUDIT_ROOT; the --audit-root flag still wins over both.
+DEFAULT_AUDIT_ROOT = Path(os.environ.get("AALE_AUDIT_ROOT") or
                           HOME / ".local" / "state" / "aalegate").expanduser()
 GATEWAY_IMAGE = "aalegate-gateway"
 EGRESS_IMAGE = "aalegate-egress"              # Go CONNECT allow-list proxy (podman/apptainer)
@@ -258,12 +258,12 @@ def _cdi_nvidia_device():
     CDI is the correct, host-agnostic path: `nvidia-ctk cdi generate` writes nvidia.yaml/json into
     /etc/cdi or /var/run/cdi, enumerating the right device nodes + version-matched driver libs +
     nvidia-smi for THIS host --- no hardwired lib paths, no single-version pin. Preferred over the
-    SONAME bind-mount fallback. Escape hatches: AALGT_CDI=0 forces the manual fallback;
-    AALGT_CDI_DIR adds a spec dir (for no-root / HPC, where CDI lives under $HOME)."""
-    if os.environ.get("AALGT_CDI") == "0":
+    SONAME bind-mount fallback. Escape hatches: AALE_CDI=0 forces the manual fallback;
+    AALE_CDI_DIR adds a spec dir (for no-root / HPC, where CDI lives under $HOME)."""
+    if os.environ.get("AALE_CDI") == "0":
         return None
     dirs = ["/etc/cdi", "/var/run/cdi"]
-    extra = os.environ.get("AALGT_CDI_DIR")
+    extra = os.environ.get("AALE_CDI_DIR")
     if extra:
         dirs.insert(0, extra)
     for d in dirs:

@@ -10,7 +10,7 @@
 #   ./build-pi.sh     [--cuda]   pi coding agent (CPU, or NVIDIA CUDA variant)
 #   ./build-claude.sh            Claude Code (Anthropic Messages API)
 #
-# Engine: docker by default; pass --engine podman (or set AALGT_ENGINE=podman) for a rootless,
+# Engine: docker by default; pass --engine podman (or set AALE_ENGINE=podman) for a rootless,
 # daemonless build. podman's image store is SEPARATE from docker's --- images built with docker
 # are invisible to `aalegate-run --runtime podman`, so build with the SAME engine you run with.
 # Rootless podman with no systemd user session needs cgroupfs; set it once, durably, in
@@ -28,7 +28,7 @@ while [ $# -gt 0 ]; do
     *) echo "build-aalegate.sh: unknown arg '$1'" >&2; exit 2 ;;
   esac
 done
-: "${ENGINE:=${AALGT_ENGINE:-docker}}"
+: "${ENGINE:=${AALE_ENGINE:-docker}}"
 command -v "$ENGINE" >/dev/null 2>&1 || { echo "build-aalegate.sh: engine '$ENGINE' not found on PATH" >&2; exit 1; }
 
 echo "== aalegate-gateway (L7 recorder; Go static -> scratch) [$ENGINE] =="

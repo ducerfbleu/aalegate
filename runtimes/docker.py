@@ -170,9 +170,9 @@ def run(args):
         ga, ge = gpu_args_nvidia_docker()
         create += ga + ge
     if local:
-        create += ["-e", "AALGT_ANTHROPIC_LOCAL=1"]  # entrypoint maps model tiers + context
+        create += ["-e", "AALE_ANTHROPIC_LOCAL=1"]  # entrypoint maps model tiers + context
     if args.shell:
-        create += ["-e", "AALGT_SHELL=1"]
+        create += ["-e", "AALE_SHELL=1"]
     create += ["-w", str(work[0][0]) if work else "/workspace", args.agent]
     if agent_cmd:
         create += agent_cmd

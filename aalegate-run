@@ -84,7 +84,7 @@ examples:
                    help="self-wire, then drop into an interactive shell")
     p.add_argument("--no-hash", action="store_true")
     p.add_argument("--audit-root", default=str(DEFAULT_AUDIT_ROOT),
-                   help="run store root (default: $AALGT_AUDIT_ROOT or ~/.local/state/aalegate)")
+                   help="run store root (default: $AALE_AUDIT_ROOT or ~/.local/state/aalegate)")
     p.add_argument("--project", metavar="DIR", default=None,
                    help="project dir that names the run's audit bucket "
                         "(<audit-root>/<basename>__<hash>/<run-id>/); "

@@ -17,20 +17,20 @@ func main() {
 	// Opt into the bubbletea "rich"/live add-on BEFORE parsing flags, so every arg passes
 	// through untouched (rich owns -sse/-gateway/-theme/-probe/-api-key). syscall.Exec replaces
 	// this process image; it only returns on failure.
-	if os.Getenv("AALGT_TUI") == "rich" {
+	if os.Getenv("AALE_TUI") == "rich" {
 		if bin, err := exec.LookPath("aalegate-tui-rich"); err == nil {
 			_ = syscall.Exec(bin, append([]string{bin}, os.Args[1:]...), os.Environ())
 			fmt.Fprintln(os.Stderr, "aalegate-tui: exec aalegate-tui-rich failed; using built-in reader")
 		} else {
-			fmt.Fprintln(os.Stderr, "aalegate-tui: AALGT_TUI=rich but aalegate-tui-rich not on PATH; using built-in reader")
+			fmt.Fprintln(os.Stderr, "aalegate-tui: AALE_TUI=rich but aalegate-tui-rich not on PATH; using built-in reader")
 		}
 	}
 
 	file := flag.String("file", "", "path to a plane1.jsonl to read")
 	runID := flag.String("run", "", "run id to read (resolved under the audit root)")
-	rootFlag := flag.String("root", "", "audit root (default $AALGT_AUDIT_ROOT or ~/.local/state/aalegate)")
+	rootFlag := flag.String("root", "", "audit root (default $AALE_AUDIT_ROOT or ~/.local/state/aalegate)")
 	pick := flag.Bool("pick", false, "choose from recent runs")
-	theme := flag.String("theme", "", "color theme: "+strings.Join(themeNames(), ", ")+" (or $AALGT_TUI_THEME)")
+	theme := flag.String("theme", "", "color theme: "+strings.Join(themeNames(), ", ")+" (or $AALE_TUI_THEME)")
 	// Accepted for arg-compat with the rich add-on; ignored by the reader.
 	_ = flag.String("probe", "", "backend probe (rich add-on only; ignored)")
 	_ = flag.String("api-key", "", "backend probe key (rich add-on only; ignored)")
@@ -41,14 +41,14 @@ func main() {
 
 	colorOff = os.Getenv("NO_COLOR") != ""
 
-	// theme: -theme flag > $AALGT_TUI_THEME > nocturnal (init default). Unknown -> warn + keep default.
-	if name := firstNonEmpty(*theme, os.Getenv("AALGT_TUI_THEME")); name != "" && !setPalette(name) {
+	// theme: -theme flag > $AALE_TUI_THEME > nocturnal (init default). Unknown -> warn + keep default.
+	if name := firstNonEmpty(*theme, os.Getenv("AALE_TUI_THEME")); name != "" && !setPalette(name) {
 		fmt.Fprintf(os.Stderr, "aalegate-tui: unknown theme %q; using nocturnal (available: %s)\n",
 			name, strings.Join(themeNames(), ", "))
 	}
 
 	if *sse != "" || *gateway != "" {
-		fmt.Fprintln(os.Stderr, "aalegate-tui reads finished runs. For live monitoring, install the rich add-on and run:\n  AALGT_TUI=rich aalegate-tui -gateway <host:port>")
+		fmt.Fprintln(os.Stderr, "aalegate-tui reads finished runs. For live monitoring, install the rich add-on and run:\n  AALE_TUI=rich aalegate-tui -gateway <host:port>")
 		os.Exit(2)
 	}
 
@@ -104,17 +104,17 @@ usage:
   aalegate-tui <RUN_ID>        # positional shorthand for -run
 
 keys: ↑/↓ move · pgup/pgdn page · enter open · c copy block · tab stats · q quit
-themes: -theme <name> or $AALGT_TUI_THEME  (nocturnal, dracula, gruvbox, nord, solarized, ansi)
-live monitoring: install the rich add-on and use  AALGT_TUI=rich aalegate-tui ...
+themes: -theme <name> or $AALE_TUI_THEME  (nocturnal, dracula, gruvbox, nord, solarized, ansi)
+live monitoring: install the rich add-on and use  AALE_TUI=rich aalegate-tui ...
 `)
 }
 
 // ---- run selection ----------------------------------------------------------
 
-// auditRootDir mirrors recorder.py's DEFAULT_AUDIT_ROOT: $AALGT_AUDIT_ROOT (tilde-expanded)
+// auditRootDir mirrors recorder.py's DEFAULT_AUDIT_ROOT: $AALE_AUDIT_ROOT (tilde-expanded)
 // or ~/.local/state/aalegate.
 func auditRootDir() string {
-	if v := os.Getenv("AALGT_AUDIT_ROOT"); v != "" {
+	if v := os.Getenv("AALE_AUDIT_ROOT"); v != "" {
 		return expandTilde(v)
 	}
 	home, err := os.UserHomeDir()

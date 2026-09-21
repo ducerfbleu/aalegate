@@ -302,7 +302,7 @@ func (u *ui) copyBlock() {
 	u.setFlash(copyToClipboard(u.blocks[u.blockCursor].raw).message())
 }
 
-// saveBlock persists the selected block to $AALGT_AUDIT_ROOT/clips/ with a datetime stamp.
+// saveBlock persists the selected block to $AALE_AUDIT_ROOT/clips/ with a datetime stamp.
 func (u *ui) saveBlock() {
 	if u.rowCursor < 0 || u.rowCursor >= len(u.recs) || u.blockCursor < 0 || u.blockCursor >= len(u.blocks) {
 		return

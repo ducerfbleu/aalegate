@@ -36,7 +36,7 @@ var (
 	cBorder string
 )
 
-// themeOrder is the display order for -theme help / $AALGT_TUI_THEME.
+// themeOrder is the display order for -theme help / $AALE_TUI_THEME.
 var themeOrder = []string{"nocturnal", "dracula", "gruvbox", "nord", "solarized", "ansi"}
 
 // palettes: nocturnal is the original look (unchanged); the four popular schemes are

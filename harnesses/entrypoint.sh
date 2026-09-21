@@ -6,7 +6,7 @@
 # Per-harness differences are DATA (the manifest), not code---one entrypoint for every harness.
 set -euo pipefail
 
-MANIFEST="${AALGT_MANIFEST:-/etc/aalegate/harness.json}"
+MANIFEST="${AALE_MANIFEST:-/etc/aalegate/harness.json}"
 [ -r "$MANIFEST" ] || { echo "aalegate: no manifest at $MANIFEST" >&2; exit 1; }
 
 model_config=$(jq -r '.model_config // ""' "$MANIFEST")
@@ -44,7 +44,7 @@ case "$model_config" in
     echo "aalegate: wired pi -> $base/v1 (model $mid, ctx $perctx)" >&2
     ;;
   ""|none)
-    if [ -n "${AALGT_ANTHROPIC_LOCAL:-}" ]; then
+    if [ -n "${AALE_ANTHROPIC_LOCAL:-}" ]; then
       # Claude Code against a LOCAL Anthropic-compatible server (e.g. llama.cpp /v1/messages).
       # Probe the recorder (which forwards to the LLM) for context size + model id, map Claude's
       # tiers onto that model, cap its context, and disable the attribution header (avoids KV-cache
@@ -87,7 +87,7 @@ esac
 # --shell: the agent is already wired; drop to an interactive (job-control) shell so you can
 # launch the agent as a CHILD job---then Ctrl+Z suspends it back to this shell, exactly like
 # running pi locally. `fg` resumes it.
-if [ -n "${AALGT_SHELL:-}" ]; then
+if [ -n "${AALE_SHELL:-}" ]; then
   echo "aalegate: wired. launch the agent with:  ${cmd[*]}" >&2
   exec bash -i
 fi

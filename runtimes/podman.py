@@ -121,10 +121,10 @@ def run(args):
             manifest_src = audit_dir / "harness.json"
         create += ["-v", f"{ep_src}:/aalegate/entrypoint:ro",
                    "-v", f"{manifest_src}:/aalegate/harness.json:ro",
-                   "-e", "AALGT_MANIFEST=/aalegate/harness.json"]
+                   "-e", "AALE_MANIFEST=/aalegate/harness.json"]
 
     if args.shell:
-        create += ["-e", "AALGT_SHELL=1"]
+        create += ["-e", "AALE_SHELL=1"]
     for p, m in work:
         create += ["-v", f"{p}:{p}" + (":ro" if m == "ro" else "")]
     for p, m in data:
