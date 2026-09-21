@@ -34,6 +34,7 @@ while [ $# -gt 0 ]; do
     --engine)    ENGINE="$2"; shift 2 ;;
     --pi-src)    PI_SRC="$2"; shift 2 ;;
     --tag)       TAG="$2"; shift 2 ;;
+    -h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build-pi.sh: unknown arg '$1'" >&2; exit 2 ;;
   esac
 done

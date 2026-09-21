@@ -25,6 +25,7 @@ ENGINE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --engine) ENGINE="$2"; shift 2 ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build-aalegate.sh: unknown arg '$1'" >&2; exit 2 ;;
   esac
 done

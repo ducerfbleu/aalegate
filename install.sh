@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
 done
 
 BINDIR="$PREFIX/bin"
-SHIMS="aalegate aalegate-log aalegate-tui"
+SHIMS="aalegate aalegate-log aalegate-access aalegate-tui"
 IMAGES="aalegate-gateway aalegate-egress aalegate-egress-proxy aalegate-claude-code aalegate-pi aalegate-pi-cuda"
 
 # ---- uninstall ---------------------------------------------------------------
@@ -145,14 +145,15 @@ if [ "$BUILD_GO" = 1 ]; then
 else
     say "skipping Go build (--no-go); using committed bin/*"
 fi
-chmod +x "$AALE_HOME/aalegate-run" "$AALE_HOME/show-log.py" "$AALE_HOME/netns-run" 2>/dev/null || true
+chmod +x "$AALE_HOME/aalegate-run" "$AALE_HOME/show-log.py" "$AALE_HOME/show-access.py" "$AALE_HOME/netns-run" 2>/dev/null || true
 
 # ---- PATH shims --------------------------------------------------------------
 step "linking shims -> $BINDIR"
 mkdir -p "$BINDIR"
-ln -sf "$AALE_HOME/aalegate-run"    "$BINDIR/aalegate"
-ln -sf "$AALE_HOME/show-log.py"     "$BINDIR/aalegate-log"
-ln -sf "$AALE_HOME/bin/aalegate-tui" "$BINDIR/aalegate-tui"
+ln -sf "$AALE_HOME/aalegate-run"       "$BINDIR/aalegate"
+ln -sf "$AALE_HOME/show-log.py"        "$BINDIR/aalegate-log"
+ln -sf "$AALE_HOME/show-access.py"     "$BINDIR/aalegate-access"
+ln -sf "$AALE_HOME/bin/aalegate-tui"   "$BINDIR/aalegate-tui"
 for s in $SHIMS; do say "$s -> $(readlink "$BINDIR/$s")"; done
 
 # ---- env file ----------------------------------------------------------------
@@ -186,6 +187,6 @@ fi
 
 step "done"
 say "installed to:  $AALE_HOME"
-say "commands:      aalegate  aalegate-log  aalegate-tui"
+say "commands:      aalegate  aalegate-log  aalegate-access  aalegate-tui"
 say "activate now:  . \"$ENV_FILE\"   (or open a new shell)"
 say "runtime images: ./build-aalegate.sh in the source tree (AALE_ENGINE=podman for podman)"

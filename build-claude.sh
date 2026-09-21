@@ -18,6 +18,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --tag)    TAG="$2"; shift 2 ;;
     --engine) ENGINE="$2"; shift 2 ;;
+    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --)       shift; extra=("$@"); break ;;
     *)        echo "build-claude.sh: unknown arg '$1'" >&2; exit 2 ;;
   esac
