@@ -8,11 +8,13 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from recorder import (
-    GATEWAY_IMAGE, EGRESS_IMAGE, DEFAULT_PORT, SCRIPT_DIR,
+    GATEWAY_IMAGE, EGRESS_IMAGE, EGRESS_DOMAINS, DEFAULT_PORT, SCRIPT_DIR,
     die, ensure_net, net_connect, rm_container, image_exists, image_digest,
-    recorder_env, egress_for, gpu_args_podman,
+    resolve_llm_key, recorder_env, egress_for, gpu_args_podman,
     create_run, parse_work_data, run_with_provenance,
 )
+
+HOME = Path.home()
 
 AIRGAP_NET = "aalegate-airgap"
 EGRESS_NET = "aalegate-net"
@@ -71,11 +73,31 @@ def run(args):
     upstream = _gateway_upstream(args.llm)
     verify = args.llm_verify
     egress = egress_for(args.egress)
+    subscription = getattr(args, "subscription", False)
+    local = getattr(args, "local", False)
+    if local and args.api == "openai":
+        args.api = "anthropic"
+    have_key = bool(args.llm_key or getattr(args, "llm_key_file", None) or getattr(args, "llm_key_env", None))
+    if local and subscription:
+        die("--local and --subscription are mutually exclusive")
+    if subscription:
+        if args.api != "anthropic":
+            die("--subscription is Anthropic-only; pass --api anthropic")
+        if have_key:
+            die("--subscription (OAuth) and --llm-key* (key custody) are mutually exclusive")
+        egress = sorted(set(egress) | set(EGRESS_DOMAINS["anthropic"]))
+    if subscription:
+        auth = "subscription"
+    elif local:
+        auth = "local+custody" if have_key else "local"
+    else:
+        auth = "custody" if have_key else "passthrough"
     gw = args.recorder_name
     port = DEFAULT_PORT
+    llm_leg = getattr(args, "llm_net", None)
 
-    print(f"aalegate-run (podman): agent={args.agent} | llm={upstream} | api={args.api} | "
-          f"egress={args.egress or 'none'}")
+    print(f"aalegate-run (podman): agent={args.agent} | llm={upstream} | api={args.api} | auth={auth} | "
+          f"egress={args.egress or ('anthropic' if subscription else 'none')}")
     print(f"  run_id: {run_id}\n  audit:  {audit_dir}")
 
     # --- gateway ---
@@ -86,12 +108,28 @@ def run(args):
     }
     gw_cmd = ["podman", "run", "-d", "--name", GATEWAY_NAME, "--network", AIRGAP_NET,
               "-v", f"{audit_dir}:/logs"]
+    kind, keyval = resolve_llm_key(args.llm_key, getattr(args, "llm_key_file", None),
+                                    getattr(args, "llm_key_env", None))
+    if kind:
+        if local:
+            hdr, pfx = ("Authorization", "Bearer ")
+        elif args.api == "anthropic":
+            hdr, pfx = ("x-api-key", "")
+        else:
+            hdr, pfx = ("Authorization", "Bearer ")
+        gw_env["GATEWAY_UPSTREAM_KEY_HEADER"] = hdr
+        gw_env["GATEWAY_UPSTREAM_KEY_PREFIX"] = pfx
+        if kind == "file":
+            gw_cmd += ["-v", f"{keyval}:/run/secrets/llm_key:ro"]
+            gw_env["GATEWAY_UPSTREAM_KEY_FILE"] = "/run/secrets/llm_key"
+        else:
+            gw_env["GATEWAY_UPSTREAM_KEY"] = keyval
     for k, v in gw_env.items():
         gw_cmd += ["-e", f"{k}={v}"]
     gw_cmd.append(GATEWAY_IMAGE)
 
     # --- agent ---
-    aenv = recorder_env(gw, port, args.llm_key)
+    aenv = recorder_env(gw, port, anthropic_subscription=subscription)
     agent_name = f"aalegate-agent-{run_id[:12]}"
     create = ["podman", "create", "--rm", "-i", "--name", agent_name, "--network", AIRGAP_NET,
               "--userns=keep-id"]
@@ -100,6 +138,10 @@ def run(args):
     if args.as_root:
         create += ["--user", "0:0"]
     create += ["-v", f"{run_home}:/home/user", "-e", "HOME=/home/user"]
+    if getattr(args, "claude_state", False):
+        host_claude = HOME / ".claude"
+        host_claude.mkdir(parents=True, exist_ok=True)
+        create += ["-v", f"{host_claude}:/home/user/.claude"]
     for k, v in aenv.items():
         create += ["-e", f"{k}={v}"]
     if egress:
@@ -123,6 +165,8 @@ def run(args):
                    "-v", f"{manifest_src}:/aalegate/harness.json:ro",
                    "-e", "AALE_MANIFEST=/aalegate/harness.json"]
 
+    if local:
+        create += ["-e", "AALE_ANTHROPIC_LOCAL=1"]
     if args.shell:
         create += ["-e", "AALE_SHELL=1"]
     for p, m in work:
@@ -180,6 +224,8 @@ def run(args):
     ensure_net(AIRGAP_NET, internal=True, cmd="podman")
     rm_container(GATEWAY_NAME, cmd="podman")
     subprocess.run(gw_cmd, check=True, capture_output=True)
+    if llm_leg:
+        net_connect(llm_leg, GATEWAY_NAME, cmd="podman")
     net_connect("podman", GATEWAY_NAME, cmd="podman")
 
     gw_ip = None

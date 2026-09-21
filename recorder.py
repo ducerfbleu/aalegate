@@ -40,7 +40,10 @@ EGRESS_DOMAINS = {
 AGENTS = {
     "pi": {"image": "aalegate-pi"},
     "pi-cuda": {"image": "aalegate-pi-cuda"},
-    "claude-code": {"image": "aalegate-claude-code"},
+    "claude-code": {"image": "aalegate-claude-code",
+                    "defaults": {"api": "anthropic",
+                                 "llm": "https://api.anthropic.com",
+                                 "llm_verify": True}},
 }
 
 DEFAULT_PORT = 8080
@@ -67,6 +70,11 @@ def resolve_dir(p, label):
 def resolve_agent(name):
     entry = AGENTS.get(name)
     return entry["image"] if entry else name
+
+
+def agent_defaults(name):
+    entry = AGENTS.get(name)
+    return dict(entry.get("defaults", {})) if entry else {}
 
 
 # ---- key custody -------------------------------------------------------------

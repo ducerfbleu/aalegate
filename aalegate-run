@@ -15,7 +15,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from recorder import EGRESS_DOMAINS, DEFAULT_AUDIT_ROOT, resolve_agent, session_candidates
+from recorder import EGRESS_DOMAINS, DEFAULT_AUDIT_ROOT, resolve_agent, agent_defaults, session_candidates
 
 
 def build_parser():
@@ -40,10 +40,10 @@ examples:
                    help="container runtime for the agent")
     p.add_argument("--agent", required=True, metavar="IMAGE",
                    help="agent image (catalog: pi, pi-cuda) or raw name/path")
-    p.add_argument("--llm", required=True, metavar="URL",
-                   help="endpoint of the already-running LLM")
-    p.add_argument("--api", choices=["openai", "anthropic", "llama"], default="openai",
-                   help="dialect hint recorded in the index")
+    p.add_argument("--llm", metavar="URL", default=None,
+                   help="endpoint of the already-running LLM (default: per agent catalog)")
+    p.add_argument("--api", choices=["openai", "anthropic", "llama"], default=None,
+                   help="dialect hint recorded in the index (default: per agent catalog, else openai)")
 
     p.add_argument("--work", nargs="+", action="extend", default=[], metavar="DIR")
     p.add_argument("--work-ro", nargs="+", action="extend", default=[], metavar="DIR")
@@ -153,7 +153,15 @@ def _prompt_session_root(cands):
 
 def main():
     args = build_parser().parse_args()
+    defaults = agent_defaults(args.agent)
     args.agent = resolve_agent(args.agent)
+    for k, v in defaults.items():
+        if getattr(args, k, None) is None:
+            setattr(args, k, v)
+    if args.llm is None:
+        sys.exit("error: --llm is required (no default for this agent)")
+    if args.api is None:
+        args.api = "openai"
     args.project = resolve_session_root(args)
 
     if args.runtime == "docker":

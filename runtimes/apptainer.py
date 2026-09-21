@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 
 from recorder import (
-    DEFAULT_PORT, SCRIPT_DIR,
-    die, recorder_env, egress_for, sif_provenance, _have, wait_port,
+    DEFAULT_PORT, SCRIPT_DIR, EGRESS_DOMAINS,
+    die, resolve_llm_key, recorder_env, egress_for, sif_provenance, _have, wait_port,
     create_run, parse_work_data, run_with_provenance,
 )
 
@@ -54,10 +54,29 @@ def run(args):
     upstream = args.llm
     verify = args.llm_verify
     egress = egress_for(args.egress)
+    subscription = getattr(args, "subscription", False)
+    local = getattr(args, "local", False)
+    if local and args.api == "openai":
+        args.api = "anthropic"
+    have_key = bool(args.llm_key or getattr(args, "llm_key_file", None) or getattr(args, "llm_key_env", None))
+    if local and subscription:
+        die("--local and --subscription are mutually exclusive")
+    if subscription:
+        if args.api != "anthropic":
+            die("--subscription is Anthropic-only; pass --api anthropic")
+        if have_key:
+            die("--subscription (OAuth) and --llm-key* (key custody) are mutually exclusive")
+        egress = sorted(set(egress) | set(EGRESS_DOMAINS["anthropic"]))
+    if subscription:
+        auth = "subscription"
+    elif local:
+        auth = "local+custody" if have_key else "local"
+    else:
+        auth = "custody" if have_key else "passthrough"
     port = getattr(args, "port", DEFAULT_PORT)
 
-    print(f"aalegate-run (apptainer/HPC): agent={args.agent} | llm={upstream} | api={args.api} | "
-          f"egress={args.egress or 'none'}")
+    print(f"aalegate-run (apptainer/HPC): agent={args.agent} | llm={upstream} | api={args.api} | auth={auth} | "
+          f"egress={args.egress or ('anthropic' if subscription else 'none')}")
     print(f"  run_id: {run_id}\n  audit:  {audit_dir}")
 
     listen_host = "127.0.0.1"
@@ -70,7 +89,22 @@ def run(args):
         "GATEWAY_TLS_VERIFY": "1" if verify else "0",
         "GATEWAY_LOG": str(audit_dir / "plane1.jsonl"), "GATEWAY_RUN_ID": run_id,
     }
-    aenv = recorder_env(reach_host, port, args.llm_key)
+    kind, keyval = resolve_llm_key(args.llm_key, getattr(args, "llm_key_file", None),
+                                    getattr(args, "llm_key_env", None))
+    if kind:
+        if local:
+            hdr, pfx = ("Authorization", "Bearer ")
+        elif args.api == "anthropic":
+            hdr, pfx = ("x-api-key", "")
+        else:
+            hdr, pfx = ("Authorization", "Bearer ")
+        rec_env["GATEWAY_UPSTREAM_KEY_HEADER"] = hdr
+        rec_env["GATEWAY_UPSTREAM_KEY_PREFIX"] = pfx
+        if kind == "file":
+            rec_env["GATEWAY_UPSTREAM_KEY_FILE"] = keyval
+        else:
+            rec_env["GATEWAY_UPSTREAM_KEY"] = keyval
+    aenv = recorder_env(reach_host, port, anthropic_subscription=subscription)
     for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
         aenv[v] = ""
     aenv["NO_PROXY"] = aenv["no_proxy"] = f"{reach_host},127.0.0.1,localhost"
@@ -84,10 +118,16 @@ def run(args):
         for v in ("NO_PROXY", "no_proxy"):
             aenv[v] = noproxy
 
+    if local:
+        aenv["AALE_ANTHROPIC_LOCAL"] = "1"
     if args.shell:
         aenv["AALE_SHELL"] = "1"
     app = ["apptainer", "run", "--contain", "--cleanenv",
            "--workdir", str(run_scratch), "--home", f"{run_home}:{HOME}"]
+    if getattr(args, "claude_state", False):
+        host_claude = HOME / ".claude"
+        host_claude.mkdir(parents=True, exist_ok=True)
+        app += ["--bind", f"{host_claude}:{HOME}/.claude"]
     if args.gpu == "nvidia":
         app += ["--nv"]
     if work:
