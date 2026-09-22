@@ -1,14 +1,16 @@
 // egress.go---aalegate egress allow-list proxy (plane 2).
 //
-// A tiny stdlib-only HTTP CONNECT proxy: it tunnels ONLY to allow-listed domains and refuses
-// (and logs) everything else. It is the agent's single controlled route to the internet---the
-// same static-binary model as the recorder: a container in docker mode, a host process in
-// apptainer mode (bin/aalegate-egress). Standard library only; build CGO_ENABLED=0 -> scratch.
+// A tiny stdlib-only forward + CONNECT proxy: it allows requests ONLY to allow-listed
+// hosts/domains and refuses (and logs) everything else. Supports both HTTPS CONNECT tunnels
+// and plain HTTP forward-proxying (GET/POST/etc. with absolute URLs). It is the agent's single
+// controlled route to the internet---the same static-binary model as the recorder: a container
+// in docker mode, a host process in apptainer mode (bin/aalegate-egress). Standard library only;
+// build CGO_ENABLED=0 -> scratch.
 //
 // Config (env):
 //   EGRESS_LISTEN  bind address                          (default ":3128")
-//   EGRESS_ALLOW   comma-separated allowed domains         (host, or any subdomain of it)
-//   EGRESS_PORTS   comma-separated allowed CONNECT ports   (default "443,80")
+//   EGRESS_ALLOW   comma-separated allowed domains/IPs     (exact match, or any subdomain)
+//   EGRESS_PORTS   comma-separated allowed ports           (default "443,80")
 //   EGRESS_LOG     access-log path, appended               (default: stderr)   [plane 2]
 //
 // Log: "<ts> <client> ALLOW|DENY|FAIL <host:port>" per attempt; on tunnel close also
@@ -81,11 +83,18 @@ func (p *proxy) conn(client, target string, sent, recv int64, dur time.Duration)
 
 func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	client, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if r.Method != http.MethodConnect {
-		p.access(client, r.Method+" "+r.Host, "DENY-METHOD")
-		http.Error(w, "egress: only HTTPS CONNECT is proxied", http.StatusMethodNotAllowed)
-		return
+	if r.Method == http.MethodConnect {
+		p.handleConnect(w, r, client)
+	} else if r.URL.IsAbs() {
+		p.handleHTTP(w, r, client)
+	} else {
+		p.access(client, r.Method+" "+r.RequestURI, "DENY-METHOD")
+		http.Error(w, "egress: non-absolute request URI", http.StatusBadRequest)
 	}
+}
+
+// handleConnect tunnels HTTPS through an allow-listed CONNECT proxy.
+func (p *proxy) handleConnect(w http.ResponseWriter, r *http.Request, client string) {
 	host, port, err := net.SplitHostPort(r.Host)
 	if err != nil {
 		http.Error(w, "egress: bad CONNECT target", http.StatusBadRequest)
@@ -118,10 +127,43 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(cc, "HTTP/1.1 200 Connection Established\r\n\r\n")
 	start := time.Now()
 	sentCh := make(chan int64, 1)
-	go func() { n, _ := io.Copy(up, cc); up.Close(); sentCh <- n }() // client -> upstream (bytes OUT)
-	recv, _ := io.Copy(cc, up)                                       // upstream -> client (bytes IN)
+	go func() { n, _ := io.Copy(up, cc); up.Close(); sentCh <- n }()
+	recv, _ := io.Copy(cc, up)
 	cc.Close()
 	p.conn(client, target, <-sentCh, recv, time.Since(start))
+}
+
+// handleHTTP forward-proxies a plain HTTP request (absolute URL) to an allow-listed host.
+func (p *proxy) handleHTTP(w http.ResponseWriter, r *http.Request, client string) {
+	host := r.URL.Hostname()
+	port := r.URL.Port()
+	if port == "" {
+		port = "80"
+	}
+	target := net.JoinHostPort(host, port)
+	if !p.hostAllowed(host) || !p.ports[port] {
+		p.access(client, r.Method+" "+target, "DENY")
+		http.Error(w, "egress: destination not allow-listed", http.StatusForbidden)
+		return
+	}
+	// Rewrite to a relative URL for the upstream server.
+	r.RequestURI = ""
+	r.Header.Del("Proxy-Connection")
+	resp, err := (&http.Transport{}).RoundTrip(r)
+	if err != nil {
+		p.access(client, r.Method+" "+target, "FAIL")
+		http.Error(w, "egress: upstream request failed", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	p.access(client, r.Method+" "+target, "ALLOW")
+	for k, vv := range resp.Header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func main() {

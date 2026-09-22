@@ -259,10 +259,7 @@ def run(args):
             die(f"egress image '{EGRESS_IMAGE}' not found---run ./build-aalegate.sh")
         rm_container(EGRESS_NAME, cmd="podman")
         egr_port = port + 1
-        # merge --allow hosts into the domain/IP list; extract custom ports.
-        # NOTE: the Go egress proxy only supports HTTPS CONNECT tunnels; plain HTTP
-        # targets (http://host:port) won't work---use docker runtime for those, or
-        # extend egress.go with HTTP forward-proxy support.
+        # merge --allow hosts into the domain/IP list; extract custom ports
         all_domains = list(egress or [])
         allow_ports = {"443", "80"}
         for spec in allow_hosts:
