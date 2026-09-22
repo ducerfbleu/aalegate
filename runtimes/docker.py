@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from recorder import (
-    GATEWAY_IMAGE, EGRESS_PROXY_IMAGE, EGRESS_DOMAINS, DEFAULT_PORT,
+    GATEWAY_IMAGE, EGRESS_IMAGE, EGRESS_DOMAINS, DEFAULT_PORT,
     die, ensure_net, net_connect, rm_container, image_exists, image_digest,
     resolve_llm_key, recorder_env, egress_for, gpu_args_nvidia_docker,
     create_run, parse_work_data, run_with_provenance,
@@ -27,63 +27,30 @@ def _gateway_upstream(url):
     return url
 
 
-def _is_ip(host):
-    """True for IPv4 dotted-quad or bracketed IPv6."""
-    if host.startswith("["):
-        return True
-    parts = host.split(".")
-    return len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts)
-
-
-def _squid_conf(domains, allow_hosts=None):
-    acls = "\n".join(f"acl allowed dstdomain {d}" for d in domains) if domains else ""
-    # --allow HOST[:PORT] entries: parse into dst (IP/hostname) + optional port ACLs.
-    # Squid needs `dst` for IPs and `dstdomain` for hostnames; port ACLs widen SSL_ports.
-    allow_ports = set()
+def _start_proxy(domains, audit_dir, uid_gid, allow_hosts=None):
+    rm_container(PROXY_NAME)
+    ensure_net(EGRESS_NET, internal=True)
+    all_domains = list(domains or [])
+    allow_ports = {"443", "80"}
     for spec in (allow_hosts or []):
         if ":" in spec and not spec.startswith("["):
             host, port = spec.rsplit(":", 1)
             allow_ports.add(port)
         else:
             host = spec
-        if _is_ip(host):
-            acls += f"\nacl allowed dst {host}"
-        else:
-            acls += f"\nacl allowed dstdomain {host}"
-    if not acls:
-        acls = "# egress: none allowed"
-    # allow 443 + any custom ports for CONNECT
-    port_acl = "acl SSL_ports port 443"
-    for p in sorted(allow_ports):
-        port_acl += f"\nacl SSL_ports port {p}"
-    return (
-        f"{port_acl}\nacl CONNECT method CONNECT\n\n"
-        f"{acls}\n\n"
-        "http_port 3128\n"
-        "http_access allow CONNECT SSL_ports allowed\n"
-        "http_access allow allowed\n"
-        "http_access deny all\n\n"
-        "cache deny all\npid_filename /tmp/squid.pid\ncoredump_dir /tmp\n"
-        "logformat r %{%Y-%m-%d %H:%M:%S}tl %6tr %>a %Ss/%03>Hs %<st %rm %ru %Sh/%<a %mt\n"
-        "access_log stdio:/var/log/squid/access.log r\ncache_log /dev/null\n"
-    )
-
-
-def _start_proxy(domains, audit_dir, uid_gid, allow_hosts=None):
-    rm_container(PROXY_NAME)
-    ensure_net(EGRESS_NET, internal=True)
-    conf = audit_dir / "squid.conf"
-    conf.write_text(_squid_conf(domains, allow_hosts))
+        all_domains.append(host)
     subprocess.run([
         "docker", "run", "-d", "--name", PROXY_NAME, "--network", EGRESS_NET,
         "--user", uid_gid, "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--pids-limit", "4096",
         "--add-host=host.docker.internal:host-gateway",
-        "-v", f"{conf}:/etc/squid/squid.conf:ro",
-        "-v", f"{audit_dir}:/var/log/squid", EGRESS_PROXY_IMAGE,
+        "-e", f"EGRESS_LISTEN=:3128",
+        "-e", f"EGRESS_ALLOW={','.join(all_domains)}",
+        "-e", f"EGRESS_PORTS={','.join(sorted(allow_ports))}",
+        "-e", "EGRESS_LOG=/logs/access.log",
+        "-v", f"{audit_dir}:/logs", EGRESS_IMAGE,
     ], check=True)
     net_connect("bridge", PROXY_NAME)
-    total = len(domains or []) + len(allow_hosts or [])
-    print(f"proxy: {PROXY_NAME} ({total} entries allowlisted)")
+    print(f"proxy: {PROXY_NAME} ({len(all_domains)} entries allowlisted)")
 
 
 def run(args):
@@ -231,8 +198,8 @@ def run(args):
         die(f"agent image '{args.agent}' not found")
     if not image_exists(GATEWAY_IMAGE):
         die(f"recorder image '{GATEWAY_IMAGE}' not found---run ./build-aalegate.sh")
-    if use_proxy and not image_exists(EGRESS_PROXY_IMAGE):
-        die(f"proxy image '{EGRESS_PROXY_IMAGE}' not found---run ./build-aalegate.sh")
+    if use_proxy and not image_exists(EGRESS_IMAGE):
+        die(f"proxy image '{EGRESS_IMAGE}' not found---run ./build-aalegate.sh")
 
     img_id, repo = image_digest(args.agent)
     print(f"agent: {args.agent}  digest={img_id}")

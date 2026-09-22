@@ -8,7 +8,8 @@ Usage:
   ./show-access.py --summary              # totals only: per-domain counts, bytes, denied
   ./show-access.py --root DIR RUN_ID
 
-Parses both aalegate-egress (Go proxy) and squid log formats. Stdlib only.
+Parses aalegate-egress (Go proxy) log format. Legacy squid logs from pre-migration
+runs are also supported (read-only; new runs always use the Go proxy). Stdlib only.
 """
 import json
 import re
@@ -21,43 +22,86 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 # ---- log parsers -------------------------------------------------------------
 
+# Go proxy log lines (current format):
+#   CONNECT: <ts> <client> ALLOW <host:port>
+#            <ts> <client> CLOSE <host:port> sent=N recv=N dur=Nms
+#   HTTP fw: <ts> <client> ALLOW <METHOD> <host:port> status=N resp=N dur=Nms
+#   Deny:    <ts> <client> DENY <METHOD> <host:port>
+#            <ts> <client> DENY-SIZE <METHOD> <host:port> body=N max=N
+#            <ts> <client> DENY-METHOD <METHOD> <uri>
+#            <ts> <client> FAIL <METHOD> <host:port> dur=Nms
 GO_RE = re.compile(
-    r'^(?P<ts>\S+)\s+(?P<client>\S+)\s+(?P<verdict>ALLOW|DENY|DENY-METHOD|DENY-SIZE|FAIL|CLOSE)\s+(?P<target>.+?)'
-    r'(?:\s+sent=(?P<sent>\d+)\s+recv=(?P<recv>\d+)\s+dur=(?P<dur>\d+)ms)?$'
+    r'^(?P<ts>\S+)\s+(?P<client>\S+)\s+'
+    r'(?P<verdict>ALLOW|DENY|DENY-METHOD|DENY-SIZE|FAIL|CLOSE)\s+'
+    r'(?P<rest>.+)$'
 )
+GO_KV = re.compile(r'(?P<key>\w+)=(?P<val>\d+)(?:ms|MB)?')
+
+# Legacy squid logformat (pre-migration docker runs):
+#   <ts> <elapsed> <client> <result/code> <bytes> <method> <target> ...
 SQUID_RE = re.compile(
     r'^(?P<ts>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+(?P<elapsed>\d+)\s+(?P<client>\S+)\s+'
     r'(?P<result>\S+)\s+(?P<bytes>\d+)\s+(?P<method>\S+)\s+(?P<target>\S+)'
 )
 
 
+def _extract_host(target_str):
+    """Extract host:port from a target string that may have a leading HTTP method."""
+    parts = target_str.split()
+    for p in reversed(parts):
+        if ":" in p or "." in p:
+            return p
+    return parts[-1] if parts else target_str
+
+
 def parse_line(line):
     line = line.strip()
     if not line:
         return None
+
     m = GO_RE.match(line)
     if m:
-        d = m.groupdict()
-        return {"ts": d["ts"], "client": d["client"], "verdict": d["verdict"],
-                "target": d["target"], "sent": int(d["sent"]) if d["sent"] else None,
-                "recv": int(d["recv"]) if d["recv"] else None,
-                "dur_ms": int(d["dur"]) if d["dur"] else None}
+        ts, client, verdict = m["ts"], m["client"], m["verdict"]
+        rest = m["rest"]
+        kvs = {km["key"]: int(km["val"]) for km in GO_KV.finditer(rest)}
+        # strip key=value pairs from rest to get the target portion
+        target = GO_KV.sub("", rest).strip()
+        method = None
+        host = target
+        # HTTP forward lines have "METHOD host:port" as target
+        tparts = target.split(None, 1)
+        if len(tparts) == 2 and tparts[0].isupper() and tparts[0].isalpha():
+            method = tparts[0]
+            host = tparts[1]
+        return {
+            "ts": ts, "client": client, "verdict": verdict,
+            "target": host, "method": method,
+            "status": kvs.get("status"),
+            "sent": kvs.get("sent"), "recv": kvs.get("resp") or kvs.get("recv"),
+            "dur_ms": kvs.get("dur"),
+            "req_body": kvs.get("body"), "max_body": kvs.get("max"),
+        }
+
     m = SQUID_RE.match(line)
     if m:
         d = m.groupdict()
         result = d["result"]
         code = result.split("/")[-1] if "/" in result else result
-        if d["method"] != "CONNECT":
-            verdict = "DENY-METHOD"
-        elif code.startswith("2"):
+        method = d["method"]
+        if code.startswith("2"):
             verdict = "ALLOW"
         elif code.startswith("4"):
             verdict = "DENY"
         else:
             verdict = "FAIL"
-        return {"ts": d["ts"], "client": d["client"], "verdict": verdict,
-                "target": d["target"], "sent": None, "recv": int(d["bytes"]),
-                "dur_ms": int(d["elapsed"])}
+        return {
+            "ts": d["ts"], "client": d["client"], "verdict": verdict,
+            "target": d["target"], "method": method if method != "CONNECT" else None,
+            "status": int(code) if code.isdigit() else None,
+            "sent": None, "recv": int(d["bytes"]),
+            "dur_ms": int(d["elapsed"]),
+            "req_body": None, "max_body": None,
+        }
     return None
 
 
@@ -200,31 +244,44 @@ def print_entry(e, color=True):
     v = e["verdict"]
     vc = VERDICT_COLOR.get(v, "") if color else ""
     r = RESET if color and vc else ""
-    parts = [e["ts"], e["client"], f"{vc}{v:<12}{r}", e["target"]]
+    target = e["target"]
+    if e.get("method"):
+        target = e["method"] + " " + target
+    parts = [e["ts"], e["client"], f"{vc}{v:<12}{r}", target]
+    if e.get("status") is not None:
+        parts.append(f"status={e['status']}")
     if e["sent"] is not None or e["recv"] is not None:
         parts.append(f"sent={fmt_bytes(e['sent'])}")
         parts.append(f"recv={fmt_bytes(e['recv'])}")
-    if e["dur_ms"] is not None and e["verdict"] == "CLOSE":
+    if e.get("dur_ms") is not None:
         parts.append(f"dur={e['dur_ms']}ms")
+    if e.get("req_body") is not None:
+        parts.append(f"body={fmt_bytes(e['req_body'])}")
+        if e.get("max_body") is not None:
+            parts.append(f"max={fmt_bytes(e['max_body'])}")
     print("  ".join(parts))
 
 
 def print_summary(entries):
     domains = {}
     for e in entries:
-        host = e["target"].rsplit(":", 1)[0] if ":" in e["target"] else e["target"]
+        target = e["target"]
+        host = target.rsplit(":", 1)[0] if ":" in target else target
         if host not in domains:
             domains[host] = {"allow": 0, "deny": 0, "close": 0,
                              "sent": 0, "recv": 0, "dur_ms": 0}
         d = domains[host]
-        if e["verdict"] == "ALLOW":
+        v = e["verdict"]
+        if v == "ALLOW":
             d["allow"] += 1
-        elif e["verdict"] == "CLOSE":
+            d["recv"] += e["recv"] or 0
+            d["dur_ms"] += e["dur_ms"] or 0
+        elif v == "CLOSE":
             d["close"] += 1
             d["sent"] += e["sent"] or 0
             d["recv"] += e["recv"] or 0
             d["dur_ms"] += e["dur_ms"] or 0
-        elif e["verdict"] in ("DENY", "DENY-METHOD"):
+        elif v in ("DENY", "DENY-METHOD", "DENY-SIZE"):
             d["deny"] += 1
 
     total_allow = sum(d["allow"] for d in domains.values())
@@ -237,7 +294,7 @@ def print_summary(entries):
     if not domains:
         print("  (no egress entries)")
         return
-    print(f"\n  {'domain':<40} {'allow':>6} {'deny':>6} {'tunnels':>8} {'sent':>10} {'recv':>10}")
+    print(f"\n  {'host':<40} {'allow':>6} {'deny':>6} {'tunnels':>8} {'sent':>10} {'recv':>10}")
     print(f"  {'---':<40} {'---':>6} {'---':>6} {'---':>8} {'---':>10} {'---':>10}")
     for host in sorted(domains, key=lambda h: domains[h]["recv"], reverse=True):
         d = domains[host]
