@@ -1,0 +1,37 @@
+# aalegate container bashrc --- color-coded terminal for --shell sessions.
+# Copied to /etc/skel/.bashrc at build time; seeded into $HOME/.bashrc by the
+# entrypoint when no user-provided one exists (e.g. fresh ephemeral home).
+
+# color prompt: green user@host, blue cwd, reset
+PS1='\[\033[01;32m\]\u@aalegate\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+
+# color support for ls, grep, diff, tree
+alias ls='ls --color=auto'
+alias ll='ls -alF --color=auto'
+alias la='ls -A --color=auto'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+alias diff='diff --color=auto'
+alias tree='tree -C'
+alias ip='ip -color=auto'
+
+# colored GCC warnings/errors
+export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
+
+# git colors (works even without a global gitconfig)
+export GIT_PAGER='less -R'
+git config --global color.ui auto 2>/dev/null || true
+
+# less with raw color passthrough
+export LESS='-R'
+export LESSOPEN='| /usr/bin/lesspipe %s 2>/dev/null'
+
+# history
+HISTSIZE=2000
+HISTFILESIZE=4000
+HISTCONTROL=ignoredups:ignorespace
+shopt -s histappend
+
+# check window size after each command
+shopt -s checkwinsize

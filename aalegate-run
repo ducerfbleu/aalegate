@@ -54,6 +54,10 @@ examples:
 
     p.add_argument("--egress", metavar="GROUPS",
                    help=f"web via allow-list---{sorted(EGRESS_DOMAINS)} or 'all'")
+    p.add_argument("--allow", action="append", metavar="HOST[:PORT]", default=None,
+                   help="allow the agent to reach a specific host (or host:port) via the egress "
+                        "proxy. Repeatable. Implies egress. Examples: --allow 192.168.1.100:8080 "
+                        "--allow api.openai.com --allow myhost.lan:9999")
     p.add_argument("--gpu", choices=["nvidia", "intel", "both"], default=None)
 
     p.add_argument("--llm-verify", action="store_true")
@@ -77,6 +81,9 @@ examples:
     p.add_argument("--claude-state", action="store_true",
                    help="bind-mount host ~/.claude (rw) so a Claude Code login persists across runs "
                         "(default: ephemeral per-run home, fresh login each time)")
+    p.add_argument("--pi-state", action="store_true",
+                   help="bind-mount host ~/.pi (rw) so pi agent state persists across runs "
+                        "(default: ephemeral per-run home, fresh state each time)")
 
     p.add_argument("--recorder-name", metavar="NAME", default="llm-gateway")
     p.add_argument("--as-root", action="store_true")

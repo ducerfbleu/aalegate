@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
 done
 
 BINDIR="$PREFIX/bin"
-SHIMS="aalegate aalegate-log aalegate-access aalegate-tui"
+SHIMS="aalegate-run aalegate-log aalegate-access aalegate-tui"
 IMAGES="aalegate-gateway aalegate-egress aalegate-egress-proxy aalegate-claude-code aalegate-pi aalegate-pi-cuda"
 
 # ---- uninstall ---------------------------------------------------------------
@@ -150,7 +150,7 @@ chmod +x "$AALE_HOME/aalegate-run" "$AALE_HOME/show-log.py" "$AALE_HOME/show-acc
 # ---- PATH shims --------------------------------------------------------------
 step "linking shims -> $BINDIR"
 mkdir -p "$BINDIR"
-ln -sf "$AALE_HOME/aalegate-run"       "$BINDIR/aalegate"
+ln -sf "$AALE_HOME/aalegate-run"       "$BINDIR/aalegate-run"
 ln -sf "$AALE_HOME/show-log.py"        "$BINDIR/aalegate-log"
 ln -sf "$AALE_HOME/show-access.py"     "$BINDIR/aalegate-access"
 ln -sf "$AALE_HOME/bin/aalegate-tui"   "$BINDIR/aalegate-tui"
@@ -187,6 +187,6 @@ fi
 
 step "done"
 say "installed to:  $AALE_HOME"
-say "commands:      aalegate  aalegate-log  aalegate-access  aalegate-tui"
+say "commands:      aalegate-run  aalegate-log  aalegate-access  aalegate-tui"
 say "activate now:  . \"$ENV_FILE\"   (or open a new shell)"
 say "runtime images: ./build-aalegate.sh in the source tree (AALE_ENGINE=podman for podman)"

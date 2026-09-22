@@ -6,6 +6,9 @@
 # Per-harness differences are DATA (the manifest), not code---one entrypoint for every harness.
 set -euo pipefail
 
+# seed color-coded bashrc into ephemeral $HOME (skip if user mounted their own)
+[ -f "$HOME/.bashrc" ] || cp /etc/skel/.bashrc "$HOME/.bashrc" 2>/dev/null || true
+
 MANIFEST="${AALE_MANIFEST:-/etc/aalegate/harness.json}"
 [ -r "$MANIFEST" ] || { echo "aalegate: no manifest at $MANIFEST" >&2; exit 1; }
 

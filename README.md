@@ -112,7 +112,6 @@ tui/
 build-aalegate.sh         build the platform (recorder + egress proxy + tui)
 build-pi.sh               build the pi agent (--cuda / --from-base)
 build-claude.sh           build the Claude Code agent
-build.sh                  legacy platform build (kept for compatibility)
 show-log.py               read provenance logs + throughput (tk/s)
 bpe_tokenizer.py          offline tokenizer for exact reasoning/writing token splits
 netns-run                 rootless network namespace helper (apptainer --netns)
@@ -133,7 +132,6 @@ cd aalegate
 ./build-pi.sh         # agent:    aalegate-pi           (npm: @earendil-works/pi-coding-agent; --cuda for GPU)
 ```
 
-(`./build.sh` remains as a legacy alias for the platform build.)
 
 ### 1. Docker + Claude Code (the common path)
 
@@ -355,8 +353,11 @@ with `--llm-key*`.
   `host.docker.internal` for the containerized recorder. The LLM must listen on
   `0.0.0.0`, not strictly `127.0.0.1`.
 - **`--egress`** groups: `gh`, `hf`, `pypi`, or `all`. Omit for fully airgapped.
+- **`--allow HOST[:PORT]`** allowlists a specific host (or host:port) via the egress
+  proxy. Repeatable. Works for host-side services, LAN, or remote APIs. Implies egress.
+  Examples: `--allow 192.168.1.100:8080 --allow api.openai.com --allow myhost.lan:9999`.
 - **Each run is fresh**---ephemeral per-run `$HOME` under the audit dir; host
-  `~/.pi` / `~/.claude` are never touched.
+  `~/.pi` / `~/.claude` are never touched unless `--pi-state` / `--claude-state`.
 - **Session bucket:** the run's audit dir is named from the `--work` dir (basename + hash of its
   realpath), not the CWD. Several `--work` → choose the shared root (interactive prompt, or `-y`
   for the broadest common parent; `--project DIR` overrides; no `--work` falls back to CWD).

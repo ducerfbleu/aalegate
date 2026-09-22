@@ -27,6 +27,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl jq \
+      vim-tiny neovim less file tree diffutils \
  && rm -rf /var/lib/apt/lists/*
 
 # pi is pinned by lockfile: harnesses/pi/package.json (version) + package-lock.json (the full
@@ -42,9 +43,14 @@ COPY harnesses/pi/package.json harnesses/pi/package-lock.json ./
 RUN npm ci --ignore-scripts && npm cache clean --force
 ENV PATH="/opt/pi/node_modules/.bin:$PATH"
 
+ENV TERM=xterm-256color
+
 # UID-neutral runtime home + workdir (writable by any uid; no USER baked in).
 ENV HOME=/home/user
 RUN mkdir -m 0777 /home/user /workspace
+
+# color-coded shell for --shell sessions; seeded into $HOME by the entrypoint.
+COPY harnesses/bashrc /etc/skel/.bashrc
 WORKDIR /workspace
 
 # aalegate self-wiring: entrypoint aims the agent at the recorder; harness.json declares wiring.

@@ -18,6 +18,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl jq git ca-certificates ripgrep bash \
+      vim-tiny neovim less file tree diffutils \
     && curl -fsSL https://claude.ai/install.sh | bash \
     && cp -L /root/.local/bin/claude /usr/local/bin/claude \
     && claude --version \
@@ -29,11 +30,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_TELEMETRY=1 \
     DISABLE_ERROR_REPORTING=1 \
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    TERM=xterm-256color
 
 # UID-neutral runtime home + workdir (writable by any uid; no USER baked in).
 ENV HOME=/home/user
 RUN mkdir -m 0777 /home/user /workspace
+
+# color-coded shell for --shell sessions; seeded into $HOME by the entrypoint.
+COPY harnesses/bashrc /etc/skel/.bashrc
 WORKDIR /workspace
 
 # shared self-wiring entrypoint + claude manifest (model_config "none": the ANTHROPIC_BASE_URL

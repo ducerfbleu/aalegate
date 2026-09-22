@@ -73,6 +73,7 @@ def run(args):
     upstream = _gateway_upstream(args.llm)
     verify = args.llm_verify
     egress = egress_for(args.egress)
+    allow_hosts = getattr(args, "allow", None) or []
     subscription = getattr(args, "subscription", False)
     local = getattr(args, "local", False)
     if local and args.api == "openai":
@@ -86,6 +87,7 @@ def run(args):
         if have_key:
             die("--subscription (OAuth) and --llm-key* (key custody) are mutually exclusive")
         egress = sorted(set(egress) | set(EGRESS_DOMAINS["anthropic"]))
+    use_proxy = bool(egress or allow_hosts)
     if subscription:
         auth = "subscription"
     elif local:
@@ -96,8 +98,11 @@ def run(args):
     port = DEFAULT_PORT
     llm_leg = getattr(args, "llm_net", None)
 
+    egress_label = args.egress or ("anthropic" if subscription else "none")
+    if allow_hosts:
+        egress_label = f"{egress_label}+allow:{','.join(allow_hosts)}"
     print(f"aalegate-run (podman): agent={args.agent} | llm={upstream} | api={args.api} | auth={auth} | "
-          f"egress={args.egress or ('anthropic' if subscription else 'none')}")
+          f"egress={egress_label}")
     print(f"  run_id: {run_id}\n  audit:  {audit_dir}")
 
     # --- gateway ---
@@ -142,9 +147,13 @@ def run(args):
         host_claude = HOME / ".claude"
         host_claude.mkdir(parents=True, exist_ok=True)
         create += ["-v", f"{host_claude}:/home/user/.claude"]
+    if getattr(args, "pi_state", False):
+        host_pi = HOME / ".pi"
+        host_pi.mkdir(parents=True, exist_ok=True)
+        create += ["-v", f"{host_pi}:/home/user/.pi"]
     for k, v in aenv.items():
         create += ["-e", f"{k}={v}"]
-    if egress:
+    if use_proxy:
         ensure_net(EGRESS_NET, internal=True, cmd="podman")
 
     # runtime-inject wiring
@@ -215,7 +224,7 @@ def run(args):
         if missing:
             die(f"runtime wiring needs jq+curl+bash---'{args.agent}' is missing:{' '.join(missing)}")
     if not image_exists(GATEWAY_IMAGE, cmd="podman"):
-        die(f"recorder image '{GATEWAY_IMAGE}' not found---run ./build.sh")
+        die(f"recorder image '{GATEWAY_IMAGE}' not found---run ./build-aalegate.sh")
 
     img_id, repo = image_digest(args.agent, cmd="podman")
     print(f"agent: {args.agent}  digest={img_id}")
@@ -245,15 +254,29 @@ def run(args):
     print(f"recorder: {GATEWAY_NAME} at {gw_ip}")
 
     # --- egress proxy ---
-    if egress:
+    if use_proxy:
         if not image_exists(EGRESS_IMAGE, cmd="podman"):
-            die(f"egress image '{EGRESS_IMAGE}' not found---run ./build.sh")
+            die(f"egress image '{EGRESS_IMAGE}' not found---run ./build-aalegate.sh")
         rm_container(EGRESS_NAME, cmd="podman")
         egr_port = port + 1
+        # merge --allow hosts into the domain/IP list; extract custom ports.
+        # NOTE: the Go egress proxy only supports HTTPS CONNECT tunnels; plain HTTP
+        # targets (http://host:port) won't work---use docker runtime for those, or
+        # extend egress.go with HTTP forward-proxy support.
+        all_domains = list(egress or [])
+        allow_ports = {"443", "80"}
+        for spec in allow_hosts:
+            if ":" in spec and not spec.startswith("["):
+                host, p = spec.rsplit(":", 1)
+                allow_ports.add(p)
+            else:
+                host = spec
+            all_domains.append(host)
         subprocess.run([
             "podman", "run", "-d", "--name", EGRESS_NAME, "--network", EGRESS_NET,
-            "-e", f"EGRESS_LISTEN=:{egr_port}", "-e", f"EGRESS_ALLOW={','.join(egress)}",
-            "-e", "EGRESS_PORTS=443,80", "-e", "EGRESS_LOG=/logs/access.log",
+            "-e", f"EGRESS_LISTEN=:{egr_port}", "-e", f"EGRESS_ALLOW={','.join(all_domains)}",
+            "-e", f"EGRESS_PORTS={','.join(sorted(allow_ports))}",
+            "-e", "EGRESS_LOG=/logs/access.log",
             "-v", f"{audit_dir}:/logs", EGRESS_IMAGE,
         ], check=True, capture_output=True)
         net_connect("podman", EGRESS_NAME, cmd="podman")
@@ -265,12 +288,13 @@ def run(args):
             time.sleep(0.3)
         if egr_ip:
             purl = f"http://{egr_ip}:{egr_port}"
-            for v in ("HTTPS_PROXY", "https_proxy"):
+            for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
                 create += ["-e", f"{v}={purl}"]
             noproxy = f"{gw_ip},127.0.0.1,localhost"
             for v in ("NO_PROXY", "no_proxy"):
                 create += ["-e", f"{v}={noproxy}"]
-            print(f"egress: {EGRESS_NAME} at {egr_ip} ({len(egress)} domains)")
+            total = len(all_domains)
+            print(f"egress: {EGRESS_NAME} at {egr_ip} ({total} entries allowlisted)")
 
     # inject recorder IP via --add-host
     img_idx = create.index(args.agent)
@@ -282,14 +306,14 @@ def run(args):
     cp = subprocess.run(create, capture_output=True, text=True)
     if cp.returncode != 0:
         rm_container(GATEWAY_NAME, cmd="podman")   # don't leave the recorder orphaned
-        if egress:
+        if use_proxy:
             rm_container(EGRESS_NAME, cmd="podman")
         die(f"podman create failed (exit {cp.returncode}): {cp.stderr.strip()}\n"
             f"  (a common cause: a --mount HOST path that doesn't exist --- rootless podman "
             f"can't create it under a root-owned dir like /opt)\n"
             f"  cmd: {' '.join(create)}")
     cid = cp.stdout.strip()
-    if egress:
+    if use_proxy:
         net_connect(EGRESS_NET, cid, cmd="podman")
 
     def agent_fn():
@@ -302,6 +326,6 @@ def run(args):
             no_hash=args.no_hash, agent_image_digest=img_id, agent_repo_digest=repo)
     finally:
         rm_container(GATEWAY_NAME, cmd="podman")
-        if egress:
+        if use_proxy:
             rm_container(EGRESS_NAME, cmd="podman")
     return rc

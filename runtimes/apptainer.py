@@ -128,6 +128,10 @@ def run(args):
         host_claude = HOME / ".claude"
         host_claude.mkdir(parents=True, exist_ok=True)
         app += ["--bind", f"{host_claude}:{HOME}/.claude"]
+    if getattr(args, "pi_state", False):
+        host_pi = HOME / ".pi"
+        host_pi.mkdir(parents=True, exist_ok=True)
+        app += ["--bind", f"{host_pi}:{HOME}/.pi"]
     if args.gpu == "nvidia":
         app += ["--nv"]
     if work:

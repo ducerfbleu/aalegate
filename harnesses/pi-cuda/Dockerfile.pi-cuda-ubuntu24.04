@@ -28,6 +28,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # ca-certificates (pi TLS) + git/jq/ripgrep/curl/bash (pi tools) + libstdc++6/libgcc-s1 (node's libs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git jq ripgrep curl bash libstdc++6 libgcc-s1 \
+      vim-tiny neovim less file tree diffutils \
     && rm -rf /var/lib/apt/lists/*
 
 # CUDA toolkit libs + the runtime-mounted driver dir, resolvable by SONAME. The math libs
@@ -43,10 +44,15 @@ COPY --from=deps /opt/pi /opt/pi
 ENV PATH="/opt/pi/node_modules/.bin:$PATH"
 RUN node --version      # fail-fast: confirm the copied node binary runs on this CUDA/Ubuntu base
 
+ENV TERM=xterm-256color
+
 # UID-neutral runtime home + workdir (writable by any uid; no USER baked in).
 ENV HOME=/home/user
 RUN mkdir -m 0777 /home/user /workspace
 WORKDIR /workspace
+
+# color-coded shell for --shell sessions; seeded into $HOME by the entrypoint.
+COPY harnesses/bashrc /etc/skel/.bashrc
 
 # aalegate self-wiring: entrypoint aims pi at the recorder; harness.json declares wiring.
 COPY harnesses/entrypoint.sh /usr/local/bin/aalegate-entrypoint

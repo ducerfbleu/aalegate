@@ -27,32 +27,63 @@ def _gateway_upstream(url):
     return url
 
 
-def _squid_conf(domains):
-    acls = "\n".join(f"acl allowed dstdomain {d}" for d in domains) or "# egress: none allowed"
+def _is_ip(host):
+    """True for IPv4 dotted-quad or bracketed IPv6."""
+    if host.startswith("["):
+        return True
+    parts = host.split(".")
+    return len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts)
+
+
+def _squid_conf(domains, allow_hosts=None):
+    acls = "\n".join(f"acl allowed dstdomain {d}" for d in domains) if domains else ""
+    # --allow HOST[:PORT] entries: parse into dst (IP/hostname) + optional port ACLs.
+    # Squid needs `dst` for IPs and `dstdomain` for hostnames; port ACLs widen SSL_ports.
+    allow_ports = set()
+    for spec in (allow_hosts or []):
+        if ":" in spec and not spec.startswith("["):
+            host, port = spec.rsplit(":", 1)
+            allow_ports.add(port)
+        else:
+            host = spec
+        if _is_ip(host):
+            acls += f"\nacl allowed dst {host}"
+        else:
+            acls += f"\nacl allowed dstdomain {host}"
+    if not acls:
+        acls = "# egress: none allowed"
+    # allow 443 + any custom ports for CONNECT
+    port_acl = "acl SSL_ports port 443"
+    for p in sorted(allow_ports):
+        port_acl += f"\nacl SSL_ports port {p}"
     return (
-        "acl SSL_ports port 443\nacl CONNECT method CONNECT\n\n"
+        f"{port_acl}\nacl CONNECT method CONNECT\n\n"
         f"{acls}\n\n"
         "http_port 3128\n"
-        "http_access allow CONNECT SSL_ports allowed\nhttp_access deny all\n\n"
+        "http_access allow CONNECT SSL_ports allowed\n"
+        "http_access allow allowed\n"
+        "http_access deny all\n\n"
         "cache deny all\npid_filename /tmp/squid.pid\ncoredump_dir /tmp\n"
         "logformat r %{%Y-%m-%d %H:%M:%S}tl %6tr %>a %Ss/%03>Hs %<st %rm %ru %Sh/%<a %mt\n"
         "access_log stdio:/var/log/squid/access.log r\ncache_log /dev/null\n"
     )
 
 
-def _start_proxy(domains, audit_dir, uid_gid):
+def _start_proxy(domains, audit_dir, uid_gid, allow_hosts=None):
     rm_container(PROXY_NAME)
     ensure_net(EGRESS_NET, internal=True)
     conf = audit_dir / "squid.conf"
-    conf.write_text(_squid_conf(domains))
+    conf.write_text(_squid_conf(domains, allow_hosts))
     subprocess.run([
         "docker", "run", "-d", "--name", PROXY_NAME, "--network", EGRESS_NET,
         "--user", uid_gid, "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--pids-limit", "4096",
+        "--add-host=host.docker.internal:host-gateway",
         "-v", f"{conf}:/etc/squid/squid.conf:ro",
         "-v", f"{audit_dir}:/var/log/squid", EGRESS_PROXY_IMAGE,
     ], check=True)
     net_connect("bridge", PROXY_NAME)
-    print(f"proxy: {PROXY_NAME} ({len(domains)} domains allowlisted)")
+    total = len(domains or []) + len(allow_hosts or [])
+    print(f"proxy: {PROXY_NAME} ({total} entries allowlisted)")
 
 
 def run(args):
@@ -67,6 +98,7 @@ def run(args):
     upstream = _gateway_upstream(args.llm)
     verify = args.llm_verify
     egress = egress_for(args.egress)
+    allow_hosts = getattr(args, "allow", None) or []
     subscription = getattr(args, "subscription", False)
     local = getattr(args, "local", False)
     if local and args.api == "openai":
@@ -84,6 +116,7 @@ def run(args):
         # checks to api.anthropic.com, which don't follow ANTHROPIC_BASE_URL. Inference (/v1/messages)
         # still routes through the recorder for plane-1 capture.
         egress = sorted(set(egress) | set(EGRESS_DOMAINS["anthropic"]))
+    use_proxy = bool(egress or allow_hosts)
     if subscription:
         auth = "subscription"
     elif local:
@@ -95,8 +128,11 @@ def run(args):
     port = DEFAULT_PORT
     llm_leg = getattr(args, "llm_net", None) or "bridge"
 
+    egress_label = args.egress or ("anthropic" if subscription else "none")
+    if allow_hosts:
+        egress_label = f"{egress_label}+allow:{','.join(allow_hosts)}"
     print(f"aalegate-run (docker): agent={args.agent} | llm={args.llm} | api={args.api} | auth={auth} | "
-          f"gpu={args.gpu or 'none'} | egress={args.egress or ('anthropic' if subscription else 'none')}")
+          f"gpu={args.gpu or 'none'} | egress={egress_label}")
     print(f"  run_id: {run_id}\n  audit:  {audit_dir}")
 
     # --- gateway env ---
@@ -147,9 +183,13 @@ def run(args):
         host_claude = HOME / ".claude"
         host_claude.mkdir(parents=True, exist_ok=True)
         create += ["-v", f"{host_claude}:{HOME}/.claude"]
+    if getattr(args, "pi_state", False):
+        host_pi = HOME / ".pi"
+        host_pi.mkdir(parents=True, exist_ok=True)
+        create += ["-v", f"{host_pi}:{HOME}/.pi"]
     for k, v in aenv.items():
         create += ["-e", f"{k}={v}"]
-    if egress:
+    if use_proxy:
         purl = f"http://{PROXY_NAME}:3128"
         for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
             create += ["-e", f"{v}={purl}"]
@@ -180,8 +220,9 @@ def run(args):
     if args.dry_run:
         import shlex
         print("# recorder (dual-homed: %s + %s):\n  %s" % (AIRGAP_NET, llm_leg, " ".join(shlex.quote(c) for c in gw_cmd)))
-        if egress:
-            print(f"# proxy: docker run -d --name {PROXY_NAME} --network {EGRESS_NET} + bridge  ({len(egress)} domains)")
+        if use_proxy:
+            total = len(egress or []) + len(allow_hosts)
+            print(f"# proxy: docker run -d --name {PROXY_NAME} --network {EGRESS_NET} + bridge  ({total} entries)")
         print("# agent:\n  " + " ".join(shlex.quote(c) for c in create))
         return 0
 
@@ -189,8 +230,8 @@ def run(args):
     if not image_exists(args.agent):
         die(f"agent image '{args.agent}' not found")
     if not image_exists(GATEWAY_IMAGE):
-        die(f"recorder image '{GATEWAY_IMAGE}' not found---run ./build.sh")
-    if egress and not image_exists(EGRESS_PROXY_IMAGE):
+        die(f"recorder image '{GATEWAY_IMAGE}' not found---run ./build-aalegate.sh")
+    if use_proxy and not image_exists(EGRESS_PROXY_IMAGE):
         die(f"proxy image '{EGRESS_PROXY_IMAGE}' not found---run ./build-aalegate.sh")
 
     img_id, repo = image_digest(args.agent)
@@ -205,12 +246,12 @@ def run(args):
     subprocess.run(gw_cmd, check=True)
     net_connect(llm_leg, gw)
     print(f"recorder: {gw} -> {upstream} (verify={int(verify)}, leg={llm_leg})")
-    if egress:
-        _start_proxy(egress, audit_dir, uid_gid)
+    if use_proxy:
+        _start_proxy(egress, audit_dir, uid_gid, allow_hosts)
 
     # --- run agent ---
     cid = subprocess.run(create, capture_output=True, text=True, check=True).stdout.strip()
-    if egress:
+    if use_proxy:
         net_connect(EGRESS_NET, cid)
     print(f"  shell in (from another terminal): docker exec -it {agent_name} bash")
 
@@ -224,6 +265,6 @@ def run(args):
             no_hash=args.no_hash, agent_image_digest=img_id, agent_repo_digest=repo)
     finally:
         rm_container(gw)
-        if egress:
+        if use_proxy:
             rm_container(PROXY_NAME)
     return rc
