@@ -22,8 +22,8 @@ sys.path.insert(0, str(SCRIPT_DIR))
 # ---- log parsers -------------------------------------------------------------
 
 GO_RE = re.compile(
-    r'^(?P<ts>\S+)\s+(?P<client>\S+)\s+(?P<verdict>ALLOW|DENY|DENY-METHOD|FAIL|CLOSE)\s+(?P<target>\S+)'
-    r'(?:\s+sent=(?P<sent>\d+)\s+recv=(?P<recv>\d+)\s+dur=(?P<dur>\d+)ms)?'
+    r'^(?P<ts>\S+)\s+(?P<client>\S+)\s+(?P<verdict>ALLOW|DENY|DENY-METHOD|DENY-SIZE|FAIL|CLOSE)\s+(?P<target>.+?)'
+    r'(?:\s+sent=(?P<sent>\d+)\s+recv=(?P<recv>\d+)\s+dur=(?P<dur>\d+)ms)?$'
 )
 SQUID_RE = re.compile(
     r'^(?P<ts>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+(?P<elapsed>\d+)\s+(?P<client>\S+)\s+'
@@ -181,7 +181,7 @@ def resolve(argv):
 
 VERDICT_COLOR = {
     "ALLOW": "\033[32m", "CLOSE": "\033[36m",
-    "DENY": "\033[31m", "DENY-METHOD": "\033[31m", "FAIL": "\033[33m",
+    "DENY": "\033[31m", "DENY-METHOD": "\033[31m", "DENY-SIZE": "\033[31m", "FAIL": "\033[33m",
 }
 RESET = "\033[0m"
 

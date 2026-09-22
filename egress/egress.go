@@ -12,6 +12,7 @@
 //   EGRESS_ALLOW   comma-separated allowed domains/IPs     (exact match, or any subdomain)
 //   EGRESS_PORTS   comma-separated allowed ports           (default "443,80")
 //   EGRESS_LOG     access-log path, appended               (default: stderr)   [plane 2]
+//   EGRESS_MAX_BODY  max HTTP forward request body in bytes  (default: 67108864 = 64 MB)
 //
 // Log: "<ts> <client> ALLOW|DENY|FAIL <host:port>" per attempt; on tunnel close also
 // "<ts> <client> CLOSE <host:port> sent=<bytes> recv=<bytes> dur=<ms>" (byte VOLUME, not content---
@@ -48,10 +49,12 @@ func splitCSV(s string) []string {
 }
 
 type proxy struct {
-	domains []string
-	ports   map[string]bool
-	mu      sync.Mutex
-	logw    io.Writer
+	domains    []string
+	ports      map[string]bool
+	transport  *http.Transport
+	maxReqBody int64 // cap on HTTP forward request bodies (exfil guard)
+	mu         sync.Mutex
+	logw       io.Writer
 }
 
 // hostAllowed matches an exact domain or any subdomain of it (github.com allows api.github.com,
@@ -146,29 +149,79 @@ func (p *proxy) handleHTTP(w http.ResponseWriter, r *http.Request, client string
 		http.Error(w, "egress: destination not allow-listed", http.StatusForbidden)
 		return
 	}
-	// Rewrite to a relative URL for the upstream server.
-	r.RequestURI = ""
-	r.Header.Del("Proxy-Connection")
-	resp, err := (&http.Transport{}).RoundTrip(r)
+	// cap request body to prevent large exfil uploads (default 64 MB).
+	// Reject oversized bodies outright rather than silently truncating (which breaks
+	// Content-Length framing and causes upstream errors).
+	if r.ContentLength > p.maxReqBody {
+		p.access(client, fmt.Sprintf("%s %s body=%d max=%d", r.Method, target, r.ContentLength, p.maxReqBody), "DENY-SIZE")
+		http.Error(w, fmt.Sprintf("egress: request body too large (%d > %d)", r.ContentLength, p.maxReqBody), http.StatusRequestEntityTooLarge)
+		return
+	}
+	removeHopByHopHeaders(r)
+	start := time.Now()
+	resp, err := p.transport.RoundTrip(r)
 	if err != nil {
-		p.access(client, r.Method+" "+target, "FAIL")
+		p.access(client, fmt.Sprintf("%s %s dur=%dms", r.Method, target, time.Since(start).Milliseconds()), "FAIL")
 		http.Error(w, "egress: upstream request failed", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
-	p.access(client, r.Method+" "+target, "ALLOW")
 	for k, vv := range resp.Header {
 		for _, v := range vv {
 			w.Header().Add(k, v)
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	// flush immediately after headers for SSE / chunked streams (text/event-stream,
+	// Transfer-Encoding: chunked) so the client sees tokens as they arrive.
+	if isStreamingResponse(resp) {
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+	written, _ := io.Copy(flushWriter{w}, resp.Body)
+	dur := time.Since(start).Milliseconds()
+	p.access(client, fmt.Sprintf("%s %s status=%d resp=%d dur=%dms", r.Method, target, resp.StatusCode, written, dur), "ALLOW")
+}
+
+func isStreamingResponse(resp *http.Response) bool {
+	ct := resp.Header.Get("Content-Type")
+	te := resp.Header.Get("Transfer-Encoding")
+	return strings.HasPrefix(ct, "text/event-stream") || strings.Contains(te, "chunked")
+}
+
+type flushWriter struct{ w http.ResponseWriter }
+
+func (fw flushWriter) Write(p []byte) (int, error) {
+	n, err := fw.w.Write(p)
+	if f, ok := fw.w.(http.Flusher); ok {
+		f.Flush()
+	}
+	return n, err
+}
+
+// removeHopByHopHeaders strips headers that must not propagate through a proxy
+// (RFC 2616 §13.5.1). Adapted from elazarl/goproxy (BSD 3-Clause).
+func removeHopByHopHeaders(r *http.Request) {
+	r.RequestURI = ""
+	r.Header.Del("Proxy-Connection")
+	r.Header.Del("Proxy-Authenticate")
+	r.Header.Del("Proxy-Authorization")
+	r.Header.Del("Connection")
+	r.Header.Del("Keep-Alive")
+	r.Header.Del("Te")
+	r.Header.Del("Trailers")
 }
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.LUTC)
-	p := &proxy{ports: map[string]bool{}, logw: os.Stderr}
+	maxBody := int64(64 << 20) // 64 MB default; override with EGRESS_MAX_BODY
+	if v := os.Getenv("EGRESS_MAX_BODY"); v != "" {
+		if n, err := fmt.Sscanf(v, "%d", &maxBody); n != 1 || err != nil {
+			log.Fatalf("bad EGRESS_MAX_BODY %q: want bytes (integer)", v)
+		}
+	}
+	p := &proxy{ports: map[string]bool{}, transport: &http.Transport{}, maxReqBody: maxBody, logw: os.Stderr}
 	p.domains = splitCSV(env("EGRESS_ALLOW", ""))
 	for _, pt := range splitCSV(env("EGRESS_PORTS", "443,80")) {
 		p.ports[pt] = true
@@ -182,6 +235,6 @@ func main() {
 		p.logw = f
 	}
 	listen := env("EGRESS_LISTEN", ":3128")
-	log.Printf("aalegate-egress: listen %s allow=%v ports=%v", listen, p.domains, env("EGRESS_PORTS", "443,80"))
+	log.Printf("aalegate-egress: listen %s allow=%v ports=%v max_body=%dMB", listen, p.domains, env("EGRESS_PORTS", "443,80"), p.maxReqBody>>20)
 	log.Fatal((&http.Server{Addr: listen, Handler: p}).ListenAndServe())
 }
