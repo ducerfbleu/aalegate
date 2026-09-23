@@ -17,7 +17,7 @@
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl jq git ca-certificates ripgrep bash \
+      curl jq git ca-certificates ripgrep bash python3 \
       vim-tiny neovim less file tree diffutils \
     && curl -fsSL https://claude.ai/install.sh | bash \
     && cp -L /root/.local/bin/claude /usr/local/bin/claude \

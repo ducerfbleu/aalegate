@@ -27,7 +27,7 @@ FROM ${CUDA_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive
 # ca-certificates (pi TLS) + git/jq/ripgrep/curl/bash (pi tools) + libstdc++6/libgcc-s1 (node's libs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates git jq ripgrep curl bash libstdc++6 libgcc-s1 \
+      ca-certificates git jq ripgrep curl bash python3 libstdc++6 libgcc-s1 \
       vim-tiny neovim less file tree diffutils \
     && rm -rf /var/lib/apt/lists/*
 

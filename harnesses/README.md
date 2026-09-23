@@ -8,8 +8,8 @@ blob. (Build once on a networked box and convert to a `.sif` for airgapped/HPC u
 
 | harness | base | agent install | build (context = aalegate root) |
 |---|---|---|---|
-| `pi/` | `node:24-slim` | `npm ci` from a pinned `package-lock.json` (pi `@0.84.4`, official package) | `docker build -t aalegate-pi -f harnesses/pi/Dockerfile .` |
-| `claude-code/` | `ubuntu:24.04` | native `claude` binary via `claude.ai/install.sh` | `docker build -t aalegate-claude-code -f harnesses/claude-code/Dockerfile .` |
+| `pi/` | `node:24-slim` | `npm ci` from a pinned `package-lock.json` (pi `@0.84.4`, official package) | `./build-pi.sh` |
+| `claude-code/` | `ubuntu:24.04` | native `claude` binary via `claude.ai/install.sh` | `./build-claude.sh` |
 | `pi-cuda/` | CUDA 12.8 / Ubuntu 24.04 | same `npm ci` lockfile as pi (node copied from the pinned node image) | `./build-pi.sh --cuda` |
 
 Swap `docker` for `podman` for a rootless, daemonless build; both work.

@@ -18,6 +18,7 @@ HOME = Path.home()
 
 AIRGAP_NET = "aalegate-airgap"
 EGRESS_NET = "aalegate-net"
+WAN_NET = "aalegate-wan"
 EGRESS_PREFIX = "aalegate-egress"
 GATEWAY_PREFIX = "aalegate-gw"
 
@@ -31,6 +32,24 @@ def _podman(*args, check=True, capture=False):
     if capture:
         return subprocess.run(cmd, capture_output=True, text=True)
     return subprocess.run(cmd, check=check)
+
+
+def _host_dns():
+    """Extract a usable DNS server for multi-homed containers. Rootless podman with
+    aardvark-dns picks the internal network's DNS when multiple networks are given,
+    breaking external resolution. Check systemd-resolved's upstream first (skips the
+    127.0.0.53 stub), then /etc/resolv.conf, fall back to public DNS."""
+    for path in ("/run/systemd/resolve/resolv.conf", "/etc/resolv.conf"):
+        try:
+            with open(path) as f:
+                for line in f:
+                    if line.strip().startswith("nameserver"):
+                        ip = line.split()[1]
+                        if not ip.startswith("127."):
+                            return ip
+        except OSError:
+            continue
+    return "1.1.1.1"
 
 
 def _container_ip(name, network):
@@ -113,7 +132,9 @@ def run(args):
         "GATEWAY_TLS_VERIFY": "1" if verify else "0",
         "GATEWAY_LOG": "/logs/plane1.jsonl", "GATEWAY_RUN_ID": run_id,
     }
-    gw_cmd = ["podman", "run", "-d", "--name", gw_container, "--network", AIRGAP_NET,
+    dns = _host_dns()
+    gw_cmd = ["podman", "run", "-d", "--name", gw_container,
+              "--network", AIRGAP_NET,
               "-v", f"{audit_dir}:/logs"]
     kind, keyval = resolve_llm_key(args.llm_key, getattr(args, "llm_key_file", None),
                                     getattr(args, "llm_key_env", None))
@@ -245,13 +266,18 @@ def run(args):
 
     # --- start recorder ---
     ensure_net(AIRGAP_NET, internal=True, cmd="podman")
+    ensure_net(WAN_NET, internal=False, cmd="podman")
     rm_container(gw_container, cmd="podman")
+    print(f"debug: recorder cmd: {' '.join(gw_cmd)}", file=sys.stderr)
     cp = subprocess.run(gw_cmd, capture_output=True, text=True)
     if cp.returncode != 0:
         die(f"recorder failed (exit {cp.returncode}): {cp.stderr.strip()}")
+    print(f"debug: recorder created on {AIRGAP_NET}", file=sys.stderr)
     if llm_leg:
         net_connect(llm_leg, gw_container, cmd="podman")
-    net_connect("podman", gw_container, cmd="podman")
+        print(f"debug: recorder connected to llm_leg={llm_leg}", file=sys.stderr)
+    net_connect(WAN_NET, gw_container, cmd="podman")
+    print(f"debug: recorder connected to {WAN_NET}", file=sys.stderr)
 
     gw_ip = None
     for _ in range(20):
@@ -261,6 +287,10 @@ def run(args):
         time.sleep(0.3)
     if not gw_ip:
         die(f"recorder has no IP on {AIRGAP_NET}")
+
+    # dump recorder's full network state
+    r = _podman("inspect", gw_container, "--format", "{{json .NetworkSettings.Networks}}", capture=True)
+    print(f"debug: recorder networks: {r.stdout.strip()}", file=sys.stderr)
 
     time.sleep(0.5)
     r = _podman("inspect", gw_container, "--format", "{{.State.Running}}", capture=True)
@@ -285,14 +315,26 @@ def run(args):
             else:
                 host = spec
             all_domains.append(host)
-        subprocess.run([
-            "podman", "run", "-d", "--name", egress_container, "--network", EGRESS_NET,
+        ensure_net(EGRESS_NET, internal=True, cmd="podman")
+        egress_cmd = [
+            "podman", "run", "-d", "--name", egress_container,
+            "--network", f"{WAN_NET},{EGRESS_NET}", "--dns", dns,
             "-e", f"EGRESS_LISTEN=:{egr_port}", "-e", f"EGRESS_ALLOW={','.join(all_domains)}",
             "-e", f"EGRESS_PORTS={','.join(sorted(allow_ports))}",
             "-e", "EGRESS_LOG=/logs/access.log",
             "-v", f"{audit_dir}:/logs", EGRESS_IMAGE,
-        ], check=True, capture_output=True)
-        net_connect("podman", egress_container, cmd="podman")
+        ]
+        print(f"debug: egress cmd: {' '.join(egress_cmd)}", file=sys.stderr)
+        subprocess.run(egress_cmd, check=True, capture_output=True)
+        print(f"debug: egress created on {WAN_NET},{EGRESS_NET}", file=sys.stderr)
+
+        # dump egress proxy's full network state + resolv.conf
+        r = _podman("inspect", egress_container, "--format", "{{json .NetworkSettings.Networks}}", capture=True)
+        print(f"debug: egress networks: {r.stdout.strip()}", file=sys.stderr)
+        r = _podman("inspect", egress_container, "--format",
+                     "{{.ResolvConfPath}}", capture=True)
+        print(f"debug: egress resolv.conf path: {r.stdout.strip()}", file=sys.stderr)
+
         egr_ip = None
         for _ in range(20):
             egr_ip = _container_ip(egress_container, EGRESS_NET)
@@ -332,6 +374,7 @@ def run(args):
     cid = cp.stdout.strip()
     if use_proxy:
         net_connect(EGRESS_NET, cid, cmd="podman")
+        print(f"debug: agent connected to {EGRESS_NET}", file=sys.stderr)
 
     def agent_fn():
         return subprocess.run(["podman", "start", "-a", "-i", cid]).returncode

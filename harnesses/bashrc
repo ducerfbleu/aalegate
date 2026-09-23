@@ -35,3 +35,6 @@ shopt -s histappend
 
 # check window size after each command
 shopt -s checkwinsize
+
+# mounted toolchains (no-op when absent)
+[ -d /usr/local/go/bin ] && export PATH="/usr/local/go/bin:$PATH"

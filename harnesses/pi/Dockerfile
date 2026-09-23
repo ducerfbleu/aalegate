@@ -27,7 +27,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep curl jq \
-      vim-tiny neovim less file tree diffutils \
+      python3 vim-tiny neovim less file tree diffutils \
  && rm -rf /var/lib/apt/lists/*
 
 # pi is pinned by lockfile: harnesses/pi/package.json (version) + package-lock.json (the full
