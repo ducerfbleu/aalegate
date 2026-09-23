@@ -35,6 +35,7 @@ EGRESS_DOMAINS = {
     # to subscription auth (the agent holds the token). Inference itself is still captured in plane 1.
     "anthropic": ["api.anthropic.com", "claude.ai", "claude.com", "platform.claude.com",
                   "downloads.claude.ai", "code.claude.com", "mcp-proxy.anthropic.com"],
+    "go": ["proxy.golang.org", "sum.golang.org", "storage.googleapis.com", "golang.org"],
 }
 
 AGENTS = {

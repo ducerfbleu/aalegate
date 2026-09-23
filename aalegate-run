@@ -24,6 +24,10 @@ def build_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 examples:
+  # Claude Code (subscription OAuth, Docker):
+  aalegate-run --runtime docker --agent aalegate-claude-code --subscription --default-home --work .
+  # Claude Code (subscription OAuth, Podman):
+  aalegate-run --runtime podman --agent aalegate-claude-code --subscription --default-home --work .
   # Podman (rootless, shared GPU):
   aalegate-run --runtime podman --agent pi --llm http://127.0.0.1:8014 --work ./work -p "task"
   # Docker (key custody):
@@ -78,12 +82,9 @@ examples:
                         "/v1/messages): map Claude's model tiers to the served model, set the "
                         "context window from /props, disable the attribution header. Pair with "
                         "--llm (+ --llm-key* if the server enforces --api-key). Excludes --subscription")
-    p.add_argument("--claude-state", action="store_true",
-                   help="bind-mount host ~/.claude (rw) so a Claude Code login persists across runs "
-                        "(default: ephemeral per-run home, fresh login each time)")
-    p.add_argument("--pi-state", action="store_true",
-                   help="bind-mount host ~/.pi (rw) so pi agent state persists across runs "
-                        "(default: ephemeral per-run home, fresh state each time)")
+    p.add_argument("--default-home", action="store_true",
+                   help="bind-mount host ~/.claude and ~/.pi (rw) so agent state persists across "
+                        "runs (default: ephemeral per-run home, fresh state each time)")
 
     p.add_argument("--recorder-name", metavar="NAME", default="llm-gateway")
     p.add_argument("--as-root", action="store_true")
@@ -165,6 +166,11 @@ def main():
     for k, v in defaults.items():
         if getattr(args, k, None) is None:
             setattr(args, k, v)
+    if args.subscription:
+        if args.llm is None:
+            args.llm = "https://api.anthropic.com"
+        if args.api is None:
+            args.api = "anthropic"
     if args.llm is None:
         sys.exit("error: --llm is required (no default for this agent)")
     if args.api is None:

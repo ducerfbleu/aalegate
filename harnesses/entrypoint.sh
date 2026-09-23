@@ -95,4 +95,9 @@ if [ -n "${AALE_SHELL:-}" ]; then
   exec bash -i
 fi
 
-exec "${cmd[@]}" "$@"
+# Run the agent under an interactive shell with job control so Ctrl+Z suspends
+# it to a bash prompt (fg resumes, exit quits). Without this, exec replaces the
+# shell and there is no parent to catch SIGTSTP --- Ctrl+Z hangs.
+export AALE_CMD
+printf -v AALE_CMD '%q ' "${cmd[@]}" "$@"
+exec bash -i -c 'eval $AALE_CMD'

@@ -124,14 +124,11 @@ def run(args):
         aenv["AALE_SHELL"] = "1"
     app = ["apptainer", "run", "--contain", "--cleanenv",
            "--workdir", str(run_scratch), "--home", f"{run_home}:{HOME}"]
-    if getattr(args, "claude_state", False):
-        host_claude = HOME / ".claude"
-        host_claude.mkdir(parents=True, exist_ok=True)
-        app += ["--bind", f"{host_claude}:{HOME}/.claude"]
-    if getattr(args, "pi_state", False):
-        host_pi = HOME / ".pi"
-        host_pi.mkdir(parents=True, exist_ok=True)
-        app += ["--bind", f"{host_pi}:{HOME}/.pi"]
+    if getattr(args, "default_home", False):
+        for dot in (".claude", ".pi"):
+            host_dir = HOME / dot
+            host_dir.mkdir(parents=True, exist_ok=True)
+            app += ["--bind", f"{host_dir}:{HOME}/{dot}"]
     if args.gpu == "nvidia":
         app += ["--nv"]
     if work:

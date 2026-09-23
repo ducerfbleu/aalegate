@@ -14,7 +14,7 @@ from recorder import (
 
 AIRGAP_NET = "aalegate-airgap"
 EGRESS_NET = "aalegate-net"
-PROXY_NAME = "aalegate-egress-proxy"
+EGRESS_PREFIX = "aalegate-egress"
 HOME = Path.home()
 
 
@@ -27,8 +27,8 @@ def _gateway_upstream(url):
     return url
 
 
-def _start_proxy(domains, audit_dir, uid_gid, allow_hosts=None):
-    rm_container(PROXY_NAME)
+def _start_proxy(proxy_name, domains, audit_dir, uid_gid, allow_hosts=None):
+    rm_container(proxy_name)
     ensure_net(EGRESS_NET, internal=True)
     all_domains = list(domains or [])
     allow_ports = {"443", "80"}
@@ -40,7 +40,7 @@ def _start_proxy(domains, audit_dir, uid_gid, allow_hosts=None):
             host = spec
         all_domains.append(host)
     subprocess.run([
-        "docker", "run", "-d", "--name", PROXY_NAME, "--network", EGRESS_NET,
+        "docker", "run", "-d", "--name", proxy_name, "--network", EGRESS_NET,
         "--user", uid_gid, "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--pids-limit", "4096",
         "--add-host=host.docker.internal:host-gateway",
         "-e", f"EGRESS_LISTEN=:3128",
@@ -49,8 +49,8 @@ def _start_proxy(domains, audit_dir, uid_gid, allow_hosts=None):
         "-e", "EGRESS_LOG=/logs/access.log",
         "-v", f"{audit_dir}:/logs", EGRESS_IMAGE,
     ], check=True)
-    net_connect("bridge", PROXY_NAME)
-    print(f"proxy: {PROXY_NAME} ({len(all_domains)} entries allowlisted)")
+    net_connect("bridge", proxy_name)
+    print(f"proxy: {proxy_name} ({len(all_domains)} entries allowlisted)")
 
 
 def run(args):
@@ -91,7 +91,8 @@ def run(args):
     else:
         auth = "custody" if have_key else "passthrough"
     uid_gid = f"{os.getuid()}:{os.getgid()}"
-    gw = args.recorder_name
+    gw = f"{args.recorder_name}-{run_id[:12]}"
+    proxy_name = f"{EGRESS_PREFIX}-{run_id[:12]}"
     port = DEFAULT_PORT
     llm_leg = getattr(args, "llm_net", None) or "bridge"
 
@@ -145,19 +146,15 @@ def run(args):
         create += ["--user", uid_gid]
     create += ["--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--pids-limit", "4096"]
     create += ["-e", f"HOME={HOME}", "-v", f"{run_home}:{HOME}"]
-    if getattr(args, "claude_state", False):
-        # persist the Claude Code OAuth login across runs; overlays the ephemeral home's .claude
-        host_claude = HOME / ".claude"
-        host_claude.mkdir(parents=True, exist_ok=True)
-        create += ["-v", f"{host_claude}:{HOME}/.claude"]
-    if getattr(args, "pi_state", False):
-        host_pi = HOME / ".pi"
-        host_pi.mkdir(parents=True, exist_ok=True)
-        create += ["-v", f"{host_pi}:{HOME}/.pi"]
+    if getattr(args, "default_home", False):
+        for dot in (".claude", ".pi"):
+            host_dir = HOME / dot
+            host_dir.mkdir(parents=True, exist_ok=True)
+            create += ["-v", f"{host_dir}:{HOME}/{dot}"]
     for k, v in aenv.items():
         create += ["-e", f"{k}={v}"]
     if use_proxy:
-        purl = f"http://{PROXY_NAME}:3128"
+        purl = f"http://{proxy_name}:3128"
         for v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
             create += ["-e", f"{v}={purl}"]
         noproxy = f"{gw},127.0.0.1,localhost"
@@ -189,7 +186,7 @@ def run(args):
         print("# recorder (dual-homed: %s + %s):\n  %s" % (AIRGAP_NET, llm_leg, " ".join(shlex.quote(c) for c in gw_cmd)))
         if use_proxy:
             total = len(egress or []) + len(allow_hosts)
-            print(f"# proxy: docker run -d --name {PROXY_NAME} --network {EGRESS_NET} + bridge  ({total} entries)")
+            print(f"# proxy: docker run -d --name {proxy_name} --network {EGRESS_NET} + bridge  ({total} entries)")
         print("# agent:\n  " + " ".join(shlex.quote(c) for c in create))
         return 0
 
@@ -210,11 +207,13 @@ def run(args):
     # --- start recorder ---
     ensure_net(AIRGAP_NET, internal=True)
     rm_container(gw)
-    subprocess.run(gw_cmd, check=True)
+    cp = subprocess.run(gw_cmd, capture_output=True, text=True)
+    if cp.returncode != 0:
+        die(f"recorder failed (exit {cp.returncode}): {cp.stderr.strip()}")
     net_connect(llm_leg, gw)
     print(f"recorder: {gw} -> {upstream} (verify={int(verify)}, leg={llm_leg})")
     if use_proxy:
-        _start_proxy(egress, audit_dir, uid_gid, allow_hosts)
+        _start_proxy(proxy_name, egress, audit_dir, uid_gid, allow_hosts)
 
     # --- run agent ---
     cid = subprocess.run(create, capture_output=True, text=True, check=True).stdout.strip()
@@ -233,5 +232,5 @@ def run(args):
     finally:
         rm_container(gw)
         if use_proxy:
-            rm_container(PROXY_NAME)
+            rm_container(proxy_name)
     return rc
