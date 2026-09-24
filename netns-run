@@ -20,7 +20,7 @@
 # apptainer's own setup (which needs the full bounding set to extract the SIF). Dropping them
 # here, around apptainer itself, breaks that extraction.
 #
-# Requires on PATH: unshare, ip, slirp4netns (`conda activate apptainer-net`).
+# Requires on PATH: unshare (util-linux), ip (iproute2), slirp4netns.
 # Point the agent at the recorder via 10.0.2.2 (aalegate-run sets --recorder-host 10.0.2.2
 # for --netns). Still open (I12): every host-loopback port is reachable at 10.0.2.2. The
 # Unix-socket design (plan Phase 1b) replaces slirp and closes that.
@@ -29,7 +29,7 @@ set -uo pipefail
 [ "${1:-}" = "--" ] && shift
 [ "$#" -gt 0 ] || { echo "usage: netns-run -- <command...>" >&2; exit 2; }
 command -v slirp4netns >/dev/null 2>&1 || {
-  echo "netns-run: slirp4netns not on PATH---'conda activate apptainer-net' (or install it)" >&2; exit 3; }
+  echo "netns-run: slirp4netns not on PATH---install slirp4netns" >&2; exit 3; }
 command -v unshare >/dev/null 2>&1 || { echo "netns-run: 'unshare' not found (util-linux)" >&2; exit 3; }
 
 TMPD="$(mktemp -d)"

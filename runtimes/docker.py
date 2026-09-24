@@ -9,7 +9,7 @@ from recorder import (
     GATEWAY_IMAGE, EGRESS_IMAGE, EGRESS_DOMAINS, DEFAULT_PORT,
     die, ensure_net, net_connect, rm_container, image_exists, image_digest,
     resolve_llm_key, recorder_env, egress_for, gpu_args_nvidia_docker,
-    create_run, parse_work_data, run_with_provenance,
+    create_run, parse_work_data, run_with_provenance, host_dotfiles,
 )
 
 AIRGAP_NET = "aalegate-airgap"
@@ -146,11 +146,8 @@ def run(args):
         create += ["--user", uid_gid]
     create += ["--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--pids-limit", "4096"]
     create += ["-e", f"HOME={HOME}", "-v", f"{run_home}:{HOME}"]
-    if getattr(args, "default_home", False):
-        for dot in (".claude", ".pi"):
-            host_dir = HOME / dot
-            host_dir.mkdir(parents=True, exist_ok=True)
-            create += ["-v", f"{host_dir}:{HOME}/{dot}"]
+    for host, dot in host_dotfiles(getattr(args, "dotfile", None)):
+        create += ["-v", f"{host}:{HOME}/{dot}"]
     for k, v in aenv.items():
         create += ["-e", f"{k}={v}"]
     if use_proxy:
@@ -160,6 +157,8 @@ def run(args):
         noproxy = f"{gw},127.0.0.1,localhost"
         for v in ("NO_PROXY", "no_proxy"):
             create += ["-e", f"{v}={noproxy}"]
+        # Node's fetch/https ignore the proxy vars without this (Node 24; probe-node-proxy.py)
+        create += ["-e", "NODE_USE_ENV_PROXY=1"]
     for p, m in work:
         create += ["-v", f"{p}:{p}" + (":ro" if m == "ro" else "")]
     for p, m in data:

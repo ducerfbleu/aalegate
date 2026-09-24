@@ -25,17 +25,17 @@ def build_parser():
         epilog="""\
 examples:
   # Claude Code (subscription OAuth, Docker):
-  aalegate-run --runtime docker --agent aalegate-claude-code --subscription --default-home --work .
+  aalegate-run --runtime docker --agent aalegate-claude-code --subscription --dotfile claude --work .
   # Claude Code (subscription OAuth, Podman):
-  aalegate-run --runtime podman --agent aalegate-claude-code --subscription --default-home --work .
+  aalegate-run --runtime podman --agent aalegate-claude-code --subscription --dotfile claude --work .
   # Podman (rootless, shared GPU):
   aalegate-run --runtime podman --agent pi --llm http://127.0.0.1:8014 --work ./work -p "task"
   # Docker (key custody):
   aalegate-run --runtime docker --agent pi --llm https://api.anthropic.com --api anthropic \\
     --llm-key-file ~/.aalegate/claude.key --work ./work -p "task"
-  # Apptainer (HPC, enforced airgap):
+  # Apptainer (HPC, enforced airgap by default; needs unshare, ip, slirp4netns):
   aalegate-run --runtime apptainer --agent aalegate-pi.sif --llm http://127.0.0.1:8080 \\
-    --netns --work ./work -p "task"
+    --work ./work -p "task"
   # Kata (hypervisor isolation):
   aalegate-run --runtime kata --agent pi --llm http://127.0.0.1:8014 --work ./work -p "task"
 """)
@@ -82,9 +82,10 @@ examples:
                         "/v1/messages): map Claude's model tiers to the served model, set the "
                         "context window from /props, disable the attribution header. Pair with "
                         "--llm (+ --llm-key* if the server enforces --api-key). Excludes --subscription")
-    p.add_argument("--default-home", action="store_true",
-                   help="bind-mount host ~/.claude and ~/.pi (rw) so agent state persists across "
-                        "runs (default: ephemeral per-run home, fresh state each time)")
+    p.add_argument("--dotfile", nargs="+", action="extend", default=[], metavar="NAME",
+                   help="bind-mount host ~/.NAME (rw) into the agent's home so that agent's state "
+                        "(login, settings) persists across runs. Repeatable: --dotfile claude pi "
+                        "mounts ~/.claude and ~/.pi (default: none; ephemeral per-run home)")
 
     p.add_argument("--recorder-name", metavar="NAME", default="llm-gateway")
     p.add_argument("--as-root", action="store_true")
@@ -105,8 +106,10 @@ examples:
     p.add_argument("--dry-run", action="store_true")
 
     # apptainer-specific
-    p.add_argument("--netns", action="store_true",
-                   help="(apptainer) run in rootless network namespace (enforced airgap)")
+    p.add_argument("--netns", action=argparse.BooleanOptionalAction, default=None,
+                   help="(apptainer) run in a rootless network namespace (enforced airgap; the "
+                        "default). --no-netns shares the host network: the airgap is policy only "
+                        "and tools that ignore HTTPS_PROXY bypass the egress proxy, unlogged")
     p.add_argument("--recorder-host", metavar="HOST", default=None)
     p.add_argument("--port", type=int, default=None)
 

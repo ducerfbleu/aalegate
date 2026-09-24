@@ -11,10 +11,8 @@ from recorder import (
     GATEWAY_IMAGE, EGRESS_IMAGE, EGRESS_DOMAINS, DEFAULT_PORT, SCRIPT_DIR,
     die, ensure_net, net_connect, rm_container, image_exists, image_digest,
     resolve_llm_key, recorder_env, egress_for, gpu_args_podman,
-    create_run, parse_work_data, run_with_provenance,
+    create_run, parse_work_data, run_with_provenance, host_dotfiles,
 )
-
-HOME = Path.home()
 
 AIRGAP_NET = "aalegate-airgap"
 EGRESS_NET = "aalegate-net"
@@ -166,11 +164,8 @@ def run(args):
     if args.as_root:
         create += ["--user", "0:0"]
     create += ["-v", f"{run_home}:/home/user", "-e", "HOME=/home/user"]
-    if getattr(args, "default_home", False):
-        for dot in (".claude", ".pi"):
-            host_dir = HOME / dot
-            host_dir.mkdir(parents=True, exist_ok=True)
-            create += ["-v", f"{host_dir}:/home/user/{dot}"]
+    for host, dot in host_dotfiles(getattr(args, "dotfile", None)):
+        create += ["-v", f"{host}:/home/user/{dot}"]
     for k, v in aenv.items():
         create += ["-e", f"{k}={v}"]
     if use_proxy:
@@ -353,6 +348,8 @@ def run(args):
         noproxy = f"{gw_ip},{gw},127.0.0.1,localhost"
         for v in ("NO_PROXY", "no_proxy"):
             create += ["-e", f"{v}={noproxy}"]
+        # Node's fetch/https ignore the proxy vars without this (Node 24; probe-node-proxy.py)
+        create += ["-e", "NODE_USE_ENV_PROXY=1"]
         total = len(all_domains)
         print(f"egress: {egress_container} at {egr_ip}:{egr_port} ({total} entries allowlisted)")
 

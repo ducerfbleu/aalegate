@@ -68,6 +68,25 @@ def resolve_dir(p, label):
     return d
 
 
+def host_dotfiles(names):
+    """--dotfile NAME...: the host ~/.NAME entries to bind (rw) into the agent's home, as
+    (host_path, ".NAME"). 'claude' and '.claude' are the same; duplicates are dropped. A missing
+    entry is created as a directory (agent state dirs like ~/.claude, ~/.pi); an existing file
+    is bound as a file."""
+    out = []
+    for n in names or []:
+        dot = n if n.startswith(".") else f".{n}"
+        if (not all(c.isalnum() or c in "._-" for c in dot[1:]) or not dot[1:2].isalnum()):
+            die(f"--dotfile '{n}': expected a name like 'claude' or '.pi' (an entry directly under ~)")
+        if any(d == dot for _, d in out):
+            continue
+        host = Path.home() / dot
+        if not host.exists():
+            host.mkdir(parents=True)
+        out.append((host, dot))
+    return out
+
+
 def resolve_agent(name):
     entry = AGENTS.get(name)
     return entry["image"] if entry else name

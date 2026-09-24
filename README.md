@@ -70,7 +70,7 @@ same in all cases---only the agent isolation differs:
 
 | | **Apptainer (HPC)** | **Podman** | **Docker** | **Kata + Docker** |
 |---|---|---|---|---|
-| isolation | namespace + `--netns` | namespace (rootless) | namespace | hypervisor (separate kernel) |
+| isolation | namespace + netns (default) | namespace (rootless) | namespace | hypervisor (separate kernel) |
 | daemon | none | none | Docker daemon | Docker daemon |
 | rootless | always | default | opt-in (`--user`) | no (KVM needs privileges) |
 | recorder | host process | container (dual-homed) | container (dual-homed) | container (dual-homed) |
@@ -93,7 +93,7 @@ recorder.py               shared recorder lifecycle (provenance, manifest, key c
 runtimes/
   docker.py               Docker agent wrapper
   podman.py               Podman agent wrapper (--wire, --manifest for BYO images)
-  apptainer.py            Apptainer/HPC agent wrapper (--netns for enforced airgap)
+  apptainer.py            Apptainer/HPC agent wrapper (netns airgap by default; --no-netns opts out)
   kata.py                 Kata wrapper (thin: sets --runtime kata-runtime, delegates to docker.py)
 gateway/
   gateway.go              L7 recorder source (Go, stdlib only, hash-chained JSONL)
@@ -114,7 +114,7 @@ build-pi.sh               build the pi agent (--cuda / --from-base)
 build-claude.sh           build the Claude Code agent
 show-log.py               read provenance logs + throughput (tk/s)
 bpe_tokenizer.py          offline tokenizer for exact reasoning/writing token splits
-netns-run                 rootless network namespace helper (apptainer --netns)
+netns-run                 rootless network namespace helper (apptainer's default airgap)
 bin/                      pre-compiled gateway + egress binaries (HPC, no Docker)
 examples/                 CUDA GEMM demo, tiny LLM for testing
 ```
@@ -157,12 +157,12 @@ Inference (`/v1/messages`) is still captured:
 ```bash
 # first run: --shell to complete the login (paste the code from the browser)
 ./aalegate-run --runtime docker --agent claude-code --subscription \
-  --default-home --work "$PWD/work" --shell
+  --dotfile claude --work "$PWD/work" --shell
 #   in the shell:  claude  -> /login -> paste code ; the token lands in the mounted ~/.claude
 
-# later runs reuse the login (--default-home); drop --shell to run a task directly:
+# later runs reuse the login (--dotfile claude); drop --shell to run a task directly:
 ./aalegate-run --runtime docker --agent claude-code --subscription \
-  --default-home --work "$PWD/work" -p "your task"
+  --dotfile claude --work "$PWD/work" -p "your task"
 ```
 
 **Local model** --- `--local` points Claude Code at a local Anthropic-compatible server (llama.cpp
@@ -197,7 +197,9 @@ namespace maps your identity in, so mounts stay yours. Works with Claude Code or
 ### 3. Apptainer / HPC (enforced airgap)
 
 Build the image on a networked box, convert it to a `.sif`, ship that to the cluster; Apptainer
-runs it as *you* (no baked UID). `--netns` enforces the airgap via a rootless network namespace:
+runs it as *you* (no baked UID). The airgap is enforced by default via a rootless network namespace
+(needs `unshare`, `ip`, `slirp4netns` and unprivileged user namespaces; `aalegate-run` checks them
+first and says what's missing):
 
 ```bash
 # on the build box (podman preferred; docker works too): OCI image -> .sif + .sif.json provenance
@@ -206,9 +208,10 @@ scp aalegate-pi.sif aalegate-pi.sif.json cluster:
 
 # on the cluster
 ml apptainer
+# the netns airgap needs unshare, ip (iproute2) and slirp4netns on PATH
 ./aalegate-run --runtime apptainer --agent aalegate-pi.sif \
   --llm http://127.0.0.1:PORT --llm-key "$LLM_KEY" \
-  --netns --work "$PWD/work" -p "your task"
+  --work "$PWD/work" -p "your task"
 ```
 
 ### 4. NVIDIA GPU (pi-cuda)
@@ -347,7 +350,7 @@ The recorder strips whatever auth the agent sent and injects the real key upstre
 **Subscription / OAuth (Claude Code):** `--subscription` turns custody OFF---there is no separable
 key to hold. The agent performs its own claude.ai login and the recorder forwards the OAuth bearer
 (carried in `anthropic-beta`; the recorder passes all headers through, so it isn't stripped). Add
-`--default-home` to persist the login in host `~/.claude` across runs; the `anthropic` egress group
+`--dotfile claude` to persist the login in host `~/.claude` across runs; the `anthropic` egress group
 is auto-allowed for OAuth (platform.claude.com) and Claude Code's direct api.anthropic.com side
 checks. Inference (`/v1/messages`) still routes through the recorder (plane 1). Mutually exclusive
 with `--llm-key*`.
@@ -362,14 +365,17 @@ with `--llm-key*`.
   proxy. Repeatable. Works for host-side services, LAN, or remote APIs. Implies egress.
   Examples: `--allow 192.168.1.100:8080 --allow api.openai.com --allow myhost.lan:9999`.
 - **Each run is fresh**---ephemeral per-run `$HOME` under the audit dir; host
-  `~/.pi` / `~/.claude` are never touched unless `--default-home`.
+  dotfiles are never touched unless named: `--dotfile NAME...` bind-mounts host `~/.NAME` (rw),
+  e.g. `--dotfile claude` for Claude Code, `--dotfile pi` for pi, `--dotfile claude pi` for both.
 - **Session bucket:** the run's audit dir is named from the `--work` dir (basename + hash of its
   realpath), not the CWD. Several `--work` → choose the shared root (interactive prompt, or `-y`
   for the broadest common parent; `--project DIR` overrides; no `--work` falls back to CWD).
 - **Hardening (Docker/Kata):** all containers run `--user`, `--security-opt=no-new-privileges`,
   `--cap-drop ALL`, `--pids-limit 4096`.
-- **`--netns` (Apptainer):** enforced airgap via rootless `unshare` + `slirp4netns`.
-  Without it, Apptainer shares the host network (policy-only airgap).
+- **netns airgap (Apptainer, default):** enforced via rootless `unshare` + `slirp4netns`; the
+  prerequisites are checked before anything starts. `--no-netns` shares the host network: the
+  airgap is policy only, and tools that ignore `HTTPS_PROXY` (e.g. Node `fetch` without
+  `NODE_USE_ENV_PROXY`) reach the internet directly, unlogged. `--allow HOST[:PORT]` works here too.
 - **`--wire` / `--manifest` (Podman):** runtime-inject the self-wiring entrypoint into
   un-catalogued images (needs `jq`, `curl`, `bash` in the image).
 - **Dry run:** `--dry-run` prints the planned commands without executing.
@@ -391,7 +397,7 @@ with `--llm-key*`.
 |---|---|---|---|
 | `--runtime docker` | [x] | namespace (runc) | key custody, WSL2 GPU |
 | `--runtime podman` | [x] | namespace (rootless) | `--wire`/`--manifest` for BYO images |
-| `--runtime apptainer` | [x] | namespace + `--netns` | HPC/SLURM, SIF signatures |
+| `--runtime apptainer` | [x] | namespace + netns (default) | HPC/SLURM, SIF signatures |
 | `--runtime kata` | [x] | hypervisor (microVM) | untrusted agents, dedicated GPU (VFIO) |
 | `--runtime sbx` | [ ] planned | hypervisor (Docker Sandboxes) | Windows-native; proprietary runtime, open recorder |
 
