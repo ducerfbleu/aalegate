@@ -14,7 +14,7 @@
 #   ./install.sh --uninstall     # remove shims + tree + env file + rc line (keeps images/keys/audit)
 #   ./install.sh --purge         # --uninstall AND remove built images, ~/.aalegate keys, audit data
 #
-# Platform images (aalegate-gateway/egress/egress-proxy) are NOT built here --- run
+# Platform images (aalegate-gateway/egress) are NOT built here --- run
 # ./build-aalegate.sh separately (docker by default; AALE_ENGINE=podman ./build-aalegate.sh
 # for a rootless podman build --- podman's image store is separate from docker's).
 set -euo pipefail
@@ -47,6 +47,7 @@ done
 
 BINDIR="$PREFIX/bin"
 SHIMS="aalegate-run aalegate-log aalegate-access aalegate-tui"
+# aalegate-egress-proxy: the retired squid image, kept here so --purge removes old copies
 IMAGES="aalegate-gateway aalegate-egress aalegate-egress-proxy aalegate-claude-code aalegate-pi aalegate-pi-cuda"
 
 # ---- uninstall ---------------------------------------------------------------

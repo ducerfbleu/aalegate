@@ -260,7 +260,7 @@ def run(args):
         rc = run_with_provenance(
             agent_fn, audit_dir=audit_dir, run_id=run_id, runtime="apptainer",
             args=args, upstream=upstream, work=work, write_dirs=write_dirs,
-            no_hash=args.no_hash, sif_sha256=sif_sha, signature=sig)
+            no_hash=args.no_hash, sif_sha256=sif_sha, signature=sig, netns=args.netns)
     finally:
         rec.terminate()
         try:

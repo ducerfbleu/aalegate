@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # build-aalegate.sh---build the shared aalegate PLATFORM images (recorder + egress + tui).
 #   aalegate-gateway       L7 recorder (Go static -> scratch)
-#   aalegate-egress        Go CONNECT allow-list proxy
-#   aalegate-egress-proxy  squid domain-allowlist proxy (built for --engine docker only; --runtime docker)
+#   aalegate-egress        Go CONNECT allow-list proxy (every runtime)
 #   aalegate-tui           read-only audit-log reader (Go stdlib + golang.org/x/term + x/text)
 #
 # Harness-agnostic and GPU-agnostic: built once, shared by every harness and runtime.
@@ -38,18 +37,7 @@ echo "== aalegate-gateway (L7 recorder; Go static -> scratch) [$ENGINE] =="
 echo "== aalegate-egress (Go CONNECT proxy) [$ENGINE] =="
 "$ENGINE" build -t aalegate-egress -f "$HERE/egress/Dockerfile.egress" "$HERE/egress"
 
-# squid is the DOCKER runtime's egress proxy (--runtime docker --egress). podman/apptainer use the
-# Go aalegate-egress above, so skip squid + its ubuntu pull unless we're actually building for docker.
-proxy_note=""
-if [ "$ENGINE" = docker ]; then
-  echo "== aalegate-egress-proxy (squid; --runtime docker --egress) [$ENGINE] =="
-  "$ENGINE" build -t aalegate-egress-proxy -f "$HERE/Dockerfile.proxy" "$HERE"
-  proxy_note=" + aalegate-egress-proxy"
-else
-  echo "== aalegate-egress-proxy: skipped (squid is docker-only; $ENGINE uses the Go aalegate-egress) =="
-fi
-
 echo "== aalegate-tui (read-only audit-log reader) =="
 (cd "$HERE/tui" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$HERE/bin/aalegate-tui" .)
 
-echo "Done (engine: $ENGINE): aalegate-gateway + aalegate-egress${proxy_note} + aalegate-tui"
+echo "Done (engine: $ENGINE): aalegate-gateway + aalegate-egress + aalegate-tui"

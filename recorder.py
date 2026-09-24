@@ -30,7 +30,7 @@ EGRESS_DOMAINS = {
     # calls api.anthropic.com DIRECTLY (not via the base URL) for the first-run connectivity check,
     # the fast-mode + WebFetch-safety checks, and feature flags, and platform.claude.com for OAuth
     # token exchange/refresh. If those are blocked, startup fails with 403 / "Unable to connect to
-    # Anthropic services". Matches the tested squid-anthropic.conf. Trade-off: api.anthropic.com being
+    # Anthropic services". Trade-off: api.anthropic.com being
     # reachable means a direct call would show in plane 2 only as a CONNECT, not payload --- inherent
     # to subscription auth (the agent holds the token). Inference itself is still captured in plane 1.
     "anthropic": ["api.anthropic.com", "claude.ai", "claude.com", "platform.claude.com",
@@ -52,8 +52,7 @@ DEFAULT_PORT = 8080
 DEFAULT_AUDIT_ROOT = Path(os.environ.get("AALE_AUDIT_ROOT") or
                           HOME / ".local" / "state" / "aalegate").expanduser()
 GATEWAY_IMAGE = "aalegate-gateway"
-EGRESS_IMAGE = "aalegate-egress"              # Go CONNECT allow-list proxy (podman/apptainer)
-EGRESS_PROXY_IMAGE = "aalegate-egress-proxy"  # squid domain-allowlist proxy (--runtime docker)
+EGRESS_IMAGE = "aalegate-egress"              # Go CONNECT allow-list proxy (every runtime)
 
 
 def die(m):

@@ -28,11 +28,10 @@ examples:
   aalegate-run --runtime docker --agent aalegate-claude-code --subscription --dotfile claude --work .
   # Claude Code (subscription OAuth, Podman):
   aalegate-run --runtime podman --agent aalegate-claude-code --subscription --dotfile claude --work .
-  # Podman (rootless, shared GPU):
+  # Claude Code on a local model (llama.cpp /v1/messages):
+  aalegate-run --runtime podman --agent claude-code --local --llm http://127.0.0.1:8014 --work .
+  # pi on a local model (llama.cpp):
   aalegate-run --runtime podman --agent pi --llm http://127.0.0.1:8014 --work ./work -p "task"
-  # Docker (key custody):
-  aalegate-run --runtime docker --agent pi --llm https://api.anthropic.com --api anthropic \\
-    --llm-key-file ~/.aalegate/claude.key --work ./work -p "task"
   # Apptainer (HPC, enforced airgap by default; needs unshare, ip, slirp4netns):
   aalegate-run --runtime apptainer --agent aalegate-pi.sif --llm http://127.0.0.1:8080 \\
     --work ./work -p "task"

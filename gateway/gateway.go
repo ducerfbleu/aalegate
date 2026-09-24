@@ -16,7 +16,7 @@
 //   GATEWAY_UPSTREAM        real LLM base URL            (e.g. "https://llm:8080")  [required]
 //   GATEWAY_TLS_VERIFY      "1" to verify upstream cert, else skip (default skip)
 //   GATEWAY_CA              PEM CA bundle for verify     (optional; else system roots)
-//   GATEWAY_UPSTREAM_PROXY  HTTP proxy for the upstream  (optional; remote LLM via squid)
+//   GATEWAY_UPSTREAM_PROXY  HTTP proxy for the upstream  (optional; e.g. the egress proxy)
 //   GATEWAY_LOG             JSONL log path (append)      [required]
 //   GATEWAY_RUN_ID          per-run provenance id        (default "unknown")
 //   GATEWAY_MAX_CAPTURE     max bytes LOGGED per body    (default 8388608; forwarding is never truncated)
