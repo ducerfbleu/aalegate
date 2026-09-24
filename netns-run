@@ -10,12 +10,20 @@
 #      10.0.2.2 (slirp's default host-loopback), DNS disabled.
 #   3. DELETE the default route inside the ns -> the ONLY reachable dest is host loopback
 #      (the recorder). Internet is route-blocked (proven: dest=external has no route).
+#      Refuse to run if the route can't be deleted.
 #   4. exec <command...> in the ns.
 #
-# Requires on PATH: unshare, ip, slirp4netns (e.g. `conda activate apptainer-net`).
+# The command runs as uid 0 in the ns, so it holds NET_ADMIN/NET_RAW and could re-add
+# `default via 10.0.2.2` to reach the internet through slirp (confirmed: I13). Dropping those
+# caps is left to the CALLER, at the right layer---e.g. apptainer.py passes `--drop-caps
+# NET_ADMIN,NET_RAW` so the caps are dropped for the process INSIDE the container, after
+# apptainer's own setup (which needs the full bounding set to extract the SIF). Dropping them
+# here, around apptainer itself, breaks that extraction.
+#
+# Requires on PATH: unshare, ip, slirp4netns (`conda activate apptainer-net`).
 # Point the agent at the recorder via 10.0.2.2 (aalegate-run sets --recorder-host 10.0.2.2
-# for --netns). Route-only airgap exposes all host-loopback ports at 10.0.2.2; add an nft
-# port-allowlist later if the LLM is ever on host loopback.
+# for --netns). Still open (I12): every host-loopback port is reachable at 10.0.2.2. The
+# Unix-socket design (plan Phase 1b) replaces slirp and closes that.
 set -uo pipefail
 
 [ "${1:-}" = "--" ] && shift
@@ -29,7 +37,7 @@ SLIRP_PID=""
 cleanup() { [ -n "$SLIRP_PID" ] && kill "$SLIRP_PID" 2>/dev/null; rm -rf "$TMPD"; }
 trap cleanup EXIT INT TERM
 
-echo "netns-run: airgapped netns (slirp4netns; recorder at 10.0.2.2, internet blocked, DNS off)" >&2
+echo "netns-run: airgapped netns (slirp4netns; recorder at 10.0.2.2, no default route, DNS off)" >&2
 
 # Attach slirp in the BACKGROUND so the agent can run in the FOREGROUND and keep the controlling
 # TTY. (If the agent is backgrounded, bash gives it /dev/null stdin -> --shell's `bash -i` reads
@@ -56,8 +64,10 @@ unshare --user --map-root --net bash -c '
     ip route show default 2>/dev/null | grep -q "^default" || break
     sleep 0.1
   done
-  ip route show default 2>/dev/null | grep -q "^default" \
-    && echo "netns-run: WARNING: default route still present---NOT airgapped" >&2
+  if ip route show default 2>/dev/null | grep -q "^default"; then
+    echo "netns-run: default route still present---refusing to run (would NOT be airgapped)" >&2
+    exit 4
+  fi
   exec "$@"
 ' _ "$@"
 rc=$?

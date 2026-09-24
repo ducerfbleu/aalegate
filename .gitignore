@@ -1,4 +1,6 @@
 *.sif
+*.sif.json
+*.sif.partial
 *.tar
 *.tar.gz
 __pycache__/

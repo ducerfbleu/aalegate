@@ -200,6 +200,11 @@ Build the image on a networked box, convert it to a `.sif`, ship that to the clu
 runs it as *you* (no baked UID). `--netns` enforces the airgap via a rootless network namespace:
 
 ```bash
+# on the build box (podman preferred; docker works too): OCI image -> .sif + .sif.json provenance
+./build-pi.sh --engine podman && ./build-apptainer.sh --engine podman aalegate-pi   # --sign to sign
+scp aalegate-pi.sif aalegate-pi.sif.json cluster:
+
+# on the cluster
 ml apptainer
 ./aalegate-run --runtime apptainer --agent aalegate-pi.sif \
   --llm http://127.0.0.1:PORT --llm-key "$LLM_KEY" \

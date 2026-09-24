@@ -31,7 +31,9 @@ def _parse_mount(spec):
 
 def _policy_note(args):
     if args.netns:
-        print("note: --netns → ENFORCED airgap via netns-run (rootless unshare + slirp4netns)",
+        print("note: --netns → airgap via netns-run: rootless netns, no default route, and apptainer\n"
+              "      --drop-caps NET_ADMIN,NET_RAW (the agent can't re-add the route). Still reachable:\n"
+              "      every host-loopback port at 10.0.2.2 (I12), until the Unix-socket design lands.",
               file=sys.stderr)
     else:
         print("WARNING: no --netns---Apptainer SHARES THE HOST NETWORK. Airgap is POLICY only.\n"
@@ -73,7 +75,7 @@ def run(args):
         auth = "local+custody" if have_key else "local"
     else:
         auth = "custody" if have_key else "passthrough"
-    port = getattr(args, "port", DEFAULT_PORT)
+    port = getattr(args, "port", None) or DEFAULT_PORT   # --port defaults to None, not absent
 
     print(f"aalegate-run (apptainer/HPC): agent={args.agent} | llm={upstream} | api={args.api} | auth={auth} | "
           f"egress={args.egress or ('anthropic' if subscription else 'none')}")
@@ -124,6 +126,13 @@ def run(args):
         aenv["AALE_SHELL"] = "1"
     app = ["apptainer", "run", "--contain", "--cleanenv",
            "--workdir", str(run_scratch), "--home", f"{run_home}:{HOME}"]
+    if args.netns:
+        # Drop NET_ADMIN/NET_RAW for the process INSIDE the container so it can't re-add the
+        # default route and undo the airgap (I13). apptainer does its own setup (SIF extraction
+        # needs the full bounding set) BEFORE applying this, which is why it must be an apptainer
+        # flag, not a setpriv wrapper around apptainer. Removed once the Unix-socket design (no
+        # slirp uplink to route to) lands.
+        app += ["--drop-caps", "CAP_NET_ADMIN,CAP_NET_RAW"]
     if getattr(args, "default_home", False):
         for dot in (".claude", ".pi"):
             host_dir = HOME / dot
