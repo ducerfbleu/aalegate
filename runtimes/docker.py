@@ -91,8 +91,8 @@ def run(args):
     else:
         auth = "custody" if have_key else "passthrough"
     uid_gid = f"{os.getuid()}:{os.getgid()}"
-    gw = f"{args.recorder_name}-{run_id[:12]}"
-    proxy_name = f"{EGRESS_PREFIX}-{run_id[:12]}"
+    gw = f"{args.recorder_name}-{run_id}"
+    proxy_name = f"{EGRESS_PREFIX}-{run_id}"
     port = DEFAULT_PORT
     llm_leg = getattr(args, "llm_net", None) or "bridge"
 
@@ -135,7 +135,7 @@ def run(args):
 
     # --- agent container ---
     aenv = recorder_env(gw, port, anthropic_subscription=subscription)
-    agent_name = f"aalegate-agent-{run_id[:12]}"
+    agent_name = f"aalegate-agent-{run_id}"
     runtime_flag = getattr(args, "container_runtime", None)
     create = ["docker", "create", "--rm", "-i", "--name", agent_name, "--network", AIRGAP_NET]
     if runtime_flag:
@@ -216,7 +216,13 @@ def run(args):
         _start_proxy(proxy_name, egress, audit_dir, uid_gid, allow_hosts)
 
     # --- run agent ---
-    cid = subprocess.run(create, capture_output=True, text=True, check=True).stdout.strip()
+    cp = subprocess.run(create, capture_output=True, text=True)
+    if cp.returncode != 0:
+        rm_container(gw)   # don't leave the recorder orphaned
+        if use_proxy:
+            rm_container(proxy_name)
+        die(f"docker create failed (exit {cp.returncode}): {cp.stderr.strip()}")
+    cid = cp.stdout.strip()
     if use_proxy:
         net_connect(EGRESS_NET, cid)
     print(f"  shell in (from another terminal): docker exec -it {agent_name} bash")

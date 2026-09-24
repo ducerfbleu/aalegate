@@ -88,8 +88,8 @@ def run(args):
         agent_cmd += ["-p", args.prompt]
 
     run_id, audit_dir, run_home = create_run(args.audit_root, args.run_id, getattr(args, "project", None))
-    gw_container = f"{GATEWAY_PREFIX}-{run_id[:12]}"
-    egress_container = f"{EGRESS_PREFIX}-{run_id[:12]}"
+    gw_container = f"{GATEWAY_PREFIX}-{run_id}"
+    egress_container = f"{EGRESS_PREFIX}-{run_id}"
     work, data, write_dirs = parse_work_data(args)
     upstream = _gateway_upstream(args.llm)
     verify = args.llm_verify
@@ -158,7 +158,7 @@ def run(args):
 
     # --- agent ---
     aenv = recorder_env(gw, port, anthropic_subscription=subscription)
-    agent_name = f"aalegate-agent-{run_id[:12]}"
+    agent_name = f"aalegate-agent-{run_id}"
     create = ["podman", "create", "--rm", "-i", "--name", agent_name, "--network", AIRGAP_NET,
               "--userns=keep-id"]
     if sys.stdin.isatty():
